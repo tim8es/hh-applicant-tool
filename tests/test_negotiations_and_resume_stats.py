@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from hh_applicant_tool.main import HHApplicantTool
@@ -117,7 +116,7 @@ def test_resume_statistics_parses_hh_initial_state():
             + "</template>"
         ),
     )
-    session = SimpleNamespace(get=lambda url: response)
+    session = SimpleNamespace(get=lambda url, **kwargs: response)
     tool.__dict__["session"] = session
 
     assert tool.get_resume_statistics() == {
@@ -163,7 +162,7 @@ def test_resume_statistics_maps_ssr_id_to_resume_hash():
             + "</template>"
         ),
     )
-    tool.__dict__["session"] = SimpleNamespace(get=lambda url: response)
+    tool.__dict__["session"] = SimpleNamespace(get=lambda url, **kwargs: response)
 
     stats = tool.get_resume_statistics()
 
@@ -171,29 +170,63 @@ def test_resume_statistics_maps_ssr_id_to_resume_hash():
     assert stats["resume-hash"]["search_shows"] == 48
 
 
-def test_resume_views_last_days_counts_only_recent_items():
+def test_resume_statistics_maps_nested_applicant_resumes_aliases():
     tool = HHApplicantTool()
-    now = datetime.now(timezone.utc)
-    pages = [
-        {
-            "items": [
-                {"created_at": (now - timedelta(days=1)).isoformat()},
-                {"created_at": (now - timedelta(days=6)).isoformat()},
+    payload = {
+        "page": {
+            "applicantResumes": [
+                {
+                    "_attributes": {
+                        "id": "internal-id",
+                        "hash": "public-resume-id",
+                    }
+                }
             ],
-            "page": 0,
-            "pages": 2,
         },
-        {
-            "items": [
-                {"created_at": (now - timedelta(days=8)).isoformat()},
-            ],
-            "page": 1,
-            "pages": 2,
+        "state": {
+            "applicantResumesStatistics": {
+                "resumes": {
+                    "internal-id": {
+                        "statistics": {
+                            "searchShows": {"count": 21},
+                            "views": {"count": 6},
+                        }
+                    }
+                }
+            }
         },
-    ]
-    client = _FakeApiClient(pages)
-    tool.__dict__["api_client"] = client
+    }
+    import html
+    import json
 
-    assert tool.get_resume_views_last_days("res1", days=7) == 2
-    assert len(client.calls) == 2
-    assert client.calls[0][0] == "/resumes/res1/views"
+    response = SimpleNamespace(
+        status_code=200,
+        url="https://hh.ru/applicant/resumes",
+        text=(
+            '<template id="HH-Lux-InitialState">'
+            + html.escape(json.dumps(payload))
+            + "</template>"
+        ),
+    )
+    tool.__dict__["session"] = SimpleNamespace(
+        get=lambda url, **kwargs: response
+    )
+
+    stats = tool.get_resume_statistics()
+
+    assert stats["public-resume-id"]["search_shows"] == 21
+    assert stats["public-resume-id"]["views"] == 6
+
+
+def test_resume_statistics_returns_empty_after_login_redirect():
+    tool = HHApplicantTool()
+    response = SimpleNamespace(
+        status_code=200,
+        url="https://hh.ru/account/login",
+        text="<html></html>",
+    )
+    tool.__dict__["session"] = SimpleNamespace(
+        get=lambda url, **kwargs: response
+    )
+
+    assert tool.get_resume_statistics() == {}
