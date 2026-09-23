@@ -253,7 +253,7 @@ class Negotiation(TypedDict):
     state: IdName
     created_at: str
     updated_at: str
-    resume: ResumeShort
+    resume: Optional[ResumeShort]
     viewed_by_opponent: bool
     has_updates: bool
     messages_url: str

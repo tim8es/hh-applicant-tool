@@ -478,6 +478,40 @@ class TestRefreshNegotiations:
         assert rows[1]["state"] == "invitation"
         assert rows[1]["vacancy_id"] == int(item2["vacancy"]["id"])
 
+    @pytest.mark.parametrize(
+        "resume_value",
+        [None, pytest.param("missing", id="missing-resume-field")],
+    )
+    def test_sync_accepts_negotiation_without_resume(
+        self,
+        api,
+        mock_tool,
+        resume_value,
+    ):
+        item = {
+            "id": "3344556677",
+            "state": {"id": "response", "name": "Отклик"},
+            "created_at": "2026-08-03T10:00:00+03:00",
+            "updated_at": "2026-08-03T10:00:00+03:00",
+            "chat_id": 22334455,
+            "vacancy": {
+                "id": "333",
+                "employer": {"id": "999"},
+            },
+        }
+        if resume_value != "missing":
+            item["resume"] = resume_value
+
+        mock_tool.get_negotiations.return_value = [item]
+
+        result = api.refresh_negotiations()
+
+        assert result == {"status": "ok", "count": 1}
+        row = mock_tool.storage.negotiations.get(int(item["id"]))
+        assert row is not None
+        assert row.resume_id is None
+        assert row.vacancy_id == int(item["vacancy"]["id"])
+
 
 class TestProfiles:
     def test_get_profiles_returns_active_profile(self, api):

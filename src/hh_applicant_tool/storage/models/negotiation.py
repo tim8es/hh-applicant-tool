@@ -11,6 +11,6 @@ class NegotiationModel(BaseModel):
     state: str = mapped(path="state.id")
     vacancy_id: int = mapped(path="vacancy.id")
     employer_id: int = mapped(path="vacancy.employer.id", default=None)
-    resume_id: str = mapped(path="resume.id")
+    resume_id: str | None = mapped(path="resume.id", default=None)
     created_at: datetime | None = None
     updated_at: datetime | None = None
