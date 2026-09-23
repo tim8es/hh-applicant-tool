@@ -618,17 +618,19 @@ class Api:
             stats["skipped_by_reason"] = dict(cur.fetchall())
 
             cur = conn.execute(
-                "SELECT date(created_at) AS day, count(*)"
+                "SELECT substr(created_at, 1, 10) AS day, count(*)"
                 " FROM negotiations"
-                " WHERE created_at >= date('now', '-30 days')"
+                " WHERE created_at IS NOT NULL"
+                " AND substr(created_at, 1, 10) >= date('now', '-30 days')"
                 " GROUP BY day ORDER BY day"
             )
             stats["daily_negotiations"] = dict(cur.fetchall())
 
             cur = conn.execute(
-                "SELECT date(created_at) AS day, count(*)"
+                "SELECT substr(created_at, 1, 10) AS day, count(*)"
                 " FROM skipped_vacancies"
-                " WHERE created_at >= date('now', '-30 days')"
+                " WHERE created_at IS NOT NULL"
+                " AND substr(created_at, 1, 10) >= date('now', '-30 days')"
                 " GROUP BY day ORDER BY day"
             )
             stats["daily_skipped"] = dict(cur.fetchall())
