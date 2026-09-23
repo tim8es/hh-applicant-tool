@@ -449,6 +449,10 @@ class HHApplicantTool(MegaTool):
             else {}
         )
         if not isinstance(resumes_stats, dict):
+            logger.warning(
+                "Resume statistics missing in HH initial state; top-level keys: %s",
+                sorted(config.keys())[:40],
+            )
             return {}
 
         result: dict[str, dict[str, int]] = {}
@@ -486,7 +490,20 @@ class HHApplicantTool(MegaTool):
             if metrics:
                 result[str(resume_id)] = metrics
 
-        applicant_resumes = config.get("applicantResumes") or []
+        applicant_resumes = config.get("applicantResumes")
+        if not isinstance(applicant_resumes, list):
+            stack = [config]
+            while stack and not isinstance(applicant_resumes, list):
+                current = stack.pop()
+                if isinstance(current, dict):
+                    candidate = current.get("applicantResumes")
+                    if isinstance(candidate, list):
+                        applicant_resumes = candidate
+                        break
+                    stack.extend(current.values())
+                elif isinstance(current, list):
+                    stack.extend(current)
+
         if isinstance(applicant_resumes, list):
             for resume in applicant_resumes:
                 if not isinstance(resume, dict):
