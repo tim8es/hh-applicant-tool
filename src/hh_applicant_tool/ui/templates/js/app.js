@@ -329,9 +329,11 @@ async function loadResumes() {
             const status = r.status ? r.status.id : 'not_published';
             const statusName = r.status ? r.status.name : 'не опубликовано';
             const counters = r.counters || {};
-            const views = (counters.total_views || 0);
+            const views = (counters.views ?? counters.total_views ?? 0);
             const newViews = (counters.new_views || 0);
             const invites = (counters.invitations || 0);
+            const newInvites = (counters.new_invitations || 0);
+            const negotiations = (r.negotiations_count || 0);
             const url = safeUrl(r.alternate_url || r.url || '');
             return `<div class="resume-card">
                 <div class="flex items-start justify-between gap-2">
@@ -339,8 +341,9 @@ async function loadResumes() {
                     <span class="resume-badge ${escapeHtml(status)}">${escapeHtml(statusName)}</span>
                 </div>
                 <div class="resume-card-meta">
-                    <span class="resume-counter">&#128065; ${views} просмотров${newViews > 0 ? ` <span style="color:#2563eb">(+${newViews} новых)</span>` : ''}</span>
-                    <span class="resume-counter">&#128231; ${invites} приглашений</span>
+                    <span class="resume-counter">&#128065; ${views} просмотров за 7 дней${newViews > 0 ? ` <span style="color:#2563eb">(+${newViews} новых)</span>` : ''}</span>
+                    <span class="resume-counter">&#128233; ${negotiations} откликов/приглашений синхронизировано</span>
+                    <span class="resume-counter">&#128231; ${invites} приглашений за 7 дней${newInvites > 0 ? ` <span style="color:#2563eb">(+${newInvites} новых)</span>` : ''}</span>
                 </div>
                 <div class="flex items-center justify-between mt-1">
                     <span class="text-xs text-gray-400">ID: ${escapeHtml(r.id)}</span>
@@ -775,10 +778,9 @@ async function loadNegotiations() {
 }
 
 async function refreshNegotiations() {
-    showToast('Синхронизация с hh.ru...', 'info');
+    showToast('Синхронизация всех откликов с hh.ru...', 'info');
     try {
-        const status = document.getElementById('neg-status-filter').value || 'active';
-        const result = await pywebview.api.refresh_negotiations(status);
+        const result = await pywebview.api.refresh_negotiations();
         if (result.status === 'ok') {
             showToast(`Загружено ${result.count} откликов`, 'success');
         } else {

@@ -54,6 +54,7 @@ def mock_tool():
         "last_name": "Петров",
         "email": "test@example.com",
     }
+    tool.get_resume_statistics.return_value = {}
     # Реальный storage для тестирования пресетов через Api
     conn = sqlite3.connect(":memory:")
     tool.storage = StorageFacade(conn)
@@ -110,6 +111,41 @@ class TestGetResumes:
     def test_returns_empty_on_error(self, api, mock_tool):
         mock_tool.get_resumes.side_effect = Exception("network error")
         assert api.get_resumes() == []
+
+    def test_merges_resume_statistics_and_negotiation_count(
+        self,
+        api,
+        mock_tool,
+    ):
+        mock_tool.get_resume_statistics.return_value = {
+            "res1": {
+                "views": 12,
+                "new_views": 3,
+                "invitations": 4,
+                "new_invitations": 1,
+                "search_shows": 50,
+            }
+        }
+        mock_tool.storage.negotiations.conn.execute(
+            """
+            INSERT INTO negotiations
+                (id, state, vacancy_id, chat_id, resume_id)
+            VALUES
+                (1, 'response', 101, 1001, 'res1'),
+                (2, 'discard', 102, 1002, 'res1')
+            """
+        )
+        mock_tool.storage.negotiations.conn.commit()
+
+        resumes = api.get_resumes()
+
+        first = resumes[0]
+        assert first["counters"]["views"] == 12
+        assert first["counters"]["new_views"] == 3
+        assert first["counters"]["invitations"] == 4
+        assert first["counters"]["search_shows"] == 50
+        assert first["negotiations_count"] == 2
+        assert resumes[1]["negotiations_count"] == 0
 
 
 class TestConfig:
@@ -321,6 +357,14 @@ class TestApplyVacancies:
 
 class TestRefreshNegotiations:
     """Синхронизация откликов с hh.ru через refresh_negotiations."""
+
+    def test_sync_all_does_not_force_active_status(self, api, mock_tool):
+        mock_tool.get_negotiations.return_value = []
+
+        result = api.refresh_negotiations()
+
+        assert result == {"status": "ok", "count": 0}
+        mock_tool.get_negotiations.assert_called_once_with(None)
 
     def test_saves_api_items_to_db(self, api, mock_tool):
         """Отклики hh.ru (raw dict'ы) сохраняются в БД, возвращается count.

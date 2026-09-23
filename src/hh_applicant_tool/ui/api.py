@@ -296,7 +296,49 @@ class Api:
         if not client.access_token and not client.refresh_token:
             return []
         try:
-            return self._tool.get_resumes()
+            resumes = [dict(item) for item in self._tool.get_resumes()]
+            try:
+                resume_stats = self._tool.get_resume_statistics()
+            except Exception as e:
+                logger.warning("get_resume_statistics error: %s", e)
+                resume_stats = {}
+
+            try:
+                rows = self._tool.storage.negotiations.conn.execute(
+                    """
+                    SELECT resume_id, count(*)
+                    FROM negotiations
+                    WHERE resume_id IS NOT NULL
+                    GROUP BY resume_id
+                    """
+                ).fetchall()
+                negotiation_counts = {
+                    str(resume_id): int(count)
+                    for resume_id, count in rows
+                }
+            except Exception as e:
+                logger.warning("resume negotiation counts error: %s", e)
+                negotiation_counts = {}
+
+            for resume in resumes:
+                resume_id = str(resume.get("id") or "")
+                counters = dict(resume.get("counters") or {})
+                statistics = resume_stats.get(resume_id, {})
+                if statistics:
+                    counters["views"] = statistics.get("views", 0)
+                    counters["new_views"] = statistics.get("new_views", 0)
+                    counters["invitations"] = statistics.get("invitations", 0)
+                    counters["new_invitations"] = statistics.get(
+                        "new_invitations", 0
+                    )
+                    counters["search_shows"] = statistics.get(
+                        "search_shows", 0
+                    )
+                resume["counters"] = counters
+                resume["negotiations_count"] = negotiation_counts.get(
+                    resume_id, 0
+                )
+            return resumes
         except Exception as e:
             if self._is_invalid_grant(e):
                 self._clear_token()
@@ -381,10 +423,10 @@ class Api:
             logger.error("get_negotiations_from_db error: %s", e)
             return []
 
-    def refresh_negotiations(self, status: str = "active") -> dict:
+    def refresh_negotiations(self, status: str | None = None) -> dict:
         try:
             count = 0
-            for item in self._tool.get_negotiations(status):
+            for item in self._tool.get_negotiations(status or None):
                 self._tool.storage.negotiations.save(item)
                 count += 1
             return {"status": "ok", "count": count}

@@ -307,26 +307,59 @@ class HHApplicantTool(MegaTool):
         return rv
 
     def get_negotiations(
-        self, status: str = "active"
+        self, status: str | None = None
     ) -> Iterable[api.datatypes.Negotiation]:
-        for page in count():
+        page = 0
+        seen_ids: set[str] = set()
+
+        while page < 200:
+            params: dict[str, Any] = {
+                "page": page,
+                "per_page": 50,
+            }
+            if status:
+                params["status"] = status
+
             r: dict[str, Any] = self.api_client.get(
                 "/negotiations",
-                page=page,
-                per_page=100,
-                status=status,
+                **params,
             )
-
             items = r.get("items", [])
-
             if not items:
                 break
 
-            yield from items
+            new_items = 0
+            for item in items:
+                item_id = str(item.get("id") or "")
+                if item_id and item_id in seen_ids:
+                    continue
+                if item_id:
+                    seen_ids.add(item_id)
+                new_items += 1
+                yield item
 
-            if page + 1 >= r.get("pages", 0):
+            if new_items == 0:
+                logger.warning(
+                    "Negotiations pagination returned no new items on page %d",
+                    page,
+                )
                 break
-                
+
+            current_page = r.get("page", page)
+            pages = r.get("pages")
+            if isinstance(pages, int) and pages > 0:
+                if current_page + 1 >= pages:
+                    break
+            else:
+                found = r.get("found")
+                if isinstance(found, int) and len(seen_ids) >= found:
+                    break
+
+            page += 1
+        else:
+            logger.warning("Negotiations pagination stopped at safety limit")
+
+
     def _is_authenticated(self, config: dict[str, Any]) -> bool:
         account = config.get('account') or {}
         if not account:
@@ -334,35 +367,78 @@ class HHApplicantTool(MegaTool):
         # Если пользователь неавторизован содержит поля типа firstName, lastName и тд со значением None (все поля)
         return any(v is not None for v in account.values())
     
-    def parse_redirect_config(self, response: requests.Response, check_auth: bool = True) -> dict[str, Any]:
+    def parse_initial_state(self, response: requests.Response) -> dict[str, Any]:
         if response.status_code != 200:
             raise Error(f"Неожиданный код ответа: {response.status_code} {response.url}")
 
         try:
-            raw_config = response.text.split('id="HH-Lux-InitialState">')[1].split('</template>')[0]
-        except IndexError:
-            raise Error(f"Template with config not found on {response.url}")
-        
-        # Теперь кавычки всегда превращаются в сущности?
-        if raw_config.startswith('{&#34;'):
-           raw_config = html.unescape(raw_config)
-            
-        # import tempfile
-        # with tempfile.NamedTemporaryFile('w', delete=False, prefix='hh_config_', suffix='.json', dir='.', encoding='utf-8') as tmp_file:
-        #     tmp_file.write(raw_config)
-        #     file_path = tmp_file.name
-        #     print(file_path)
-        
+            raw_config = response.text.split('id="HH-Lux-InitialState">')[1].split(
+                "</template>"
+            )[0]
+        except IndexError as ex:
+            raise Error(f"Template with config not found on {response.url}") from ex
+
+        if "&#" in raw_config or "&quot;" in raw_config or "&amp;" in raw_config:
+            raw_config = html.unescape(raw_config)
+
         config = json.loads(raw_config)
-        assert type(config) is dict
-        assert "redirectConfig" in config
+        if not isinstance(config, dict):
+            raise Error(f"Invalid initial state on {response.url}")
+        return config
+
+    def parse_redirect_config(
+        self,
+        response: requests.Response,
+        check_auth: bool = True,
+    ) -> dict[str, Any]:
+        config = self.parse_initial_state(response)
+        if "redirectConfig" not in config:
+            raise Error(f"redirectConfig not found on {response.url}")
         if check_auth and not self._is_authenticated(config):
             raise Error("Авторизация истекла требуется новая!")
-            
         return config
 
     def get_redirect_config(self, url: str, check_auth: bool = True) -> dict[str, Any]:
         return self.parse_redirect_config(self.session.get(url), check_auth)
+
+    def get_resume_statistics(self) -> dict[str, dict[str, int]]:
+        """Return per-resume statistics shown on the applicant resumes page."""
+        try:
+            response = self.session.get("https://hh.ru/applicant/resumes")
+            config = self.parse_initial_state(response)
+        except Exception as ex:
+            logger.warning("Unable to load resume statistics: %s", ex)
+            return {}
+
+        stats_root = config.get("applicantResumesStatistics", {})
+        resumes_stats = (
+            stats_root.get("resumes", {})
+            if isinstance(stats_root, dict)
+            else {}
+        )
+        if not isinstance(resumes_stats, dict):
+            return {}
+
+        result: dict[str, dict[str, int]] = {}
+        for resume_id, payload in resumes_stats.items():
+            if not isinstance(payload, dict):
+                continue
+            statistics = payload.get("statistics", {})
+            if not isinstance(statistics, dict):
+                continue
+
+            views = statistics.get("views") or {}
+            invitations = statistics.get("invitations") or {}
+            search_shows = statistics.get("searchShows") or {}
+
+            result[str(resume_id)] = {
+                "views": int(views.get("count") or 0),
+                "new_views": int(views.get("countNew") or 0),
+                "invitations": int(invitations.get("count") or 0),
+                "new_invitations": int(invitations.get("countNew") or 0),
+                "search_shows": int(search_shows.get("count") or 0),
+            }
+        return result
 
     # TODO: добавить еще методов или те удалить?
 
