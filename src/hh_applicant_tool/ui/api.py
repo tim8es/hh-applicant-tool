@@ -320,25 +320,57 @@ class Api:
                 logger.warning("resume negotiation counts error: %s", e)
                 negotiation_counts = {}
 
-            for resume in resumes:
-                resume_id = str(resume.get("id") or "")
+            result = []
+            for short_resume in resumes:
+                resume_id = str(short_resume.get("id") or "")
+                resume = dict(short_resume)
+
+                if resume_id:
+                    try:
+                        full_resume = client.get(f"/resumes/{resume_id}")
+                        if isinstance(full_resume, dict):
+                            resume.update(full_resume)
+                    except Exception as e:
+                        logger.warning(
+                            "get full resume %s error: %s",
+                            resume_id,
+                            e,
+                        )
+
                 counters = dict(resume.get("counters") or {})
+
+                if resume.get("total_views") is not None:
+                    counters["total_views"] = int(
+                        resume.get("total_views") or 0
+                    )
+                if resume.get("new_views") is not None:
+                    counters["new_views"] = int(
+                        resume.get("new_views") or 0
+                    )
+
                 statistics = resume_stats.get(resume_id, {})
-                if statistics:
-                    counters["views"] = statistics.get("views", 0)
-                    counters["new_views"] = statistics.get("new_views", 0)
-                    counters["invitations"] = statistics.get("invitations", 0)
-                    counters["new_invitations"] = statistics.get(
-                        "new_invitations", 0
-                    )
-                    counters["search_shows"] = statistics.get(
-                        "search_shows", 0
-                    )
+                if "views" in statistics:
+                    counters["views_7d"] = statistics["views"]
+                    counters.setdefault("views", statistics["views"])
+                if "new_views" in statistics:
+                    counters["new_views_7d"] = statistics["new_views"]
+                    counters.setdefault("new_views", statistics["new_views"])
+                for key in (
+                    "invitations",
+                    "new_invitations",
+                    "search_shows",
+                ):
+                    if key in statistics:
+                        counters[key] = statistics[key]
+
                 resume["counters"] = counters
                 resume["negotiations_count"] = negotiation_counts.get(
                     resume_id, 0
                 )
-            return resumes
+                resume["web_statistics_available"] = bool(statistics)
+                result.append(resume)
+
+            return result
         except Exception as e:
             if self._is_invalid_grant(e):
                 self._clear_token()
@@ -403,9 +435,12 @@ class Api:
             cur = conn.execute(
                 """
                 SELECT n.id, n.state, n.vacancy_id, n.employer_id,
-                       n.created_at,
+                       n.resume_id, n.created_at,
                        v.name AS vacancy_name,
-                       v.alternate_url AS vacancy_url,
+                       COALESCE(
+                           v.alternate_url,
+                           'https://hh.ru/vacancy/' || n.vacancy_id
+                       ) AS vacancy_url,
                        e.name AS employer_name
                 FROM negotiations n
                 LEFT JOIN vacancies v ON v.id = n.vacancy_id
@@ -423,12 +458,124 @@ class Api:
             logger.error("get_negotiations_from_db error: %s", e)
             return []
 
+    @staticmethod
+    def _merge_negotiation_data(base: dict, extra: dict) -> dict:
+        merged = dict(base)
+        for key, value in extra.items():
+            if (
+                isinstance(value, dict)
+                and isinstance(merged.get(key), dict)
+            ):
+                merged[key] = Api._merge_negotiation_data(
+                    merged[key],
+                    value,
+                )
+            elif value is not None:
+                merged[key] = value
+        return merged
+
+    def _enrich_negotiation(self, item: dict) -> dict:
+        data = dict(item)
+        negotiation_id = data.get("id")
+        vacancy = data.get("vacancy") or {}
+        employer = (
+            vacancy.get("employer")
+            if isinstance(vacancy, dict)
+            else {}
+        ) or {}
+
+        needs_detail = (
+            not isinstance(data.get("resume"), dict)
+            or not vacancy.get("name")
+            or not vacancy.get("alternate_url")
+            or not employer.get("name")
+        )
+        if needs_detail and negotiation_id:
+            try:
+                detail = self._tool.api_client.get(
+                    f"/negotiations/{negotiation_id}"
+                )
+                if isinstance(detail, dict):
+                    data = self._merge_negotiation_data(data, detail)
+            except Exception as e:
+                logger.warning(
+                    "negotiation %s detail error: %s",
+                    negotiation_id,
+                    e,
+                )
+
+        vacancy = data.get("vacancy") or {}
+        if isinstance(vacancy, dict) and vacancy.get("id"):
+            employer = vacancy.get("employer") or {}
+            needs_vacancy = (
+                not vacancy.get("name")
+                or not vacancy.get("alternate_url")
+                or not (
+                    isinstance(employer, dict)
+                    and employer.get("name")
+                )
+            )
+            if needs_vacancy:
+                try:
+                    vacancy_id = vacancy["id"]
+                    vacancy_detail = self._tool.api_client.get(
+                        f"/vacancies/{vacancy_id}"
+                    )
+                    if isinstance(vacancy_detail, dict):
+                        vacancy = self._merge_negotiation_data(
+                            vacancy,
+                            vacancy_detail,
+                        )
+                        data["vacancy"] = vacancy
+                except Exception as e:
+                    logger.warning(
+                        "vacancy %s detail error: %s",
+                        vacancy.get("id"),
+                        e,
+                    )
+        return data
+
+    def _save_negotiation_context(self, item: dict) -> None:
+        vacancy = item.get("vacancy") or {}
+        if not isinstance(vacancy, dict) or not vacancy.get("id"):
+            return
+
+        vacancy = dict(vacancy)
+        vacancy_id = vacancy["id"]
+        vacancy.setdefault("name", f"Вакансия #{vacancy_id}")
+        vacancy.setdefault(
+            "alternate_url",
+            f"https://hh.ru/vacancy/{vacancy_id}",
+        )
+        vacancy.setdefault("area", {"id": 0, "name": ""})
+
+        employer = vacancy.get("employer") or {}
+        if (
+            isinstance(employer, dict)
+            and employer.get("id")
+            and employer.get("name")
+        ):
+            self._tool.storage.employers.save(employer)
+
+        self._tool.storage.vacancies.save(vacancy)
+
     def refresh_negotiations(self, status: str | None = None) -> dict:
         try:
             count = 0
-            for item in self._tool.get_negotiations(status or None):
+            enriched = 0
+            for raw_item in self._tool.get_negotiations(status or None):
+                item = self._enrich_negotiation(raw_item)
+                if item != raw_item:
+                    enriched += 1
+                self._save_negotiation_context(item)
                 self._tool.storage.negotiations.save(item)
                 count += 1
+
+            if enriched:
+                logger.info(
+                    "Negotiations enriched with details: %d",
+                    enriched,
+                )
             return {"status": "ok", "count": count}
         except Exception as e:
             logger.error("refresh_negotiations error: %s", e)
