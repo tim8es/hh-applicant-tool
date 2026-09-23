@@ -352,6 +352,21 @@ class Api:
                 if "views" in statistics:
                     counters["views_7d"] = statistics["views"]
                     counters.setdefault("views", statistics["views"])
+                elif resume_id:
+                    try:
+                        counters["views_7d"] = (
+                            self._tool.get_resume_views_last_days(
+                                resume_id,
+                                days=7,
+                            )
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "get recent resume views %s error: %s",
+                            resume_id,
+                            e,
+                        )
+
                 if "new_views" in statistics:
                     counters["new_views_7d"] = statistics["new_views"]
                     counters.setdefault("new_views", statistics["new_views"])
