@@ -147,6 +147,36 @@ class TestGetResumes:
         assert first["negotiations_count"] == 2
         assert resumes[1]["negotiations_count"] == 0
 
+    def test_full_resume_api_supplies_real_view_totals(
+        self,
+        api,
+        mock_tool,
+    ):
+        mock_tool.get_resume_statistics.return_value = {}
+        mock_tool.api_client.get.side_effect = lambda endpoint: {
+            "/resumes/res1": {
+                "id": "res1",
+                "title": "Python Dev",
+                "status": {"id": "published", "name": "published"},
+                "total_views": 27,
+                "new_views": 3,
+            },
+            "/resumes/res2": {
+                "id": "res2",
+                "title": "Go Dev",
+                "status": {"id": "blocked", "name": "blocked"},
+                "total_views": 9,
+                "new_views": 1,
+            },
+        }[endpoint]
+
+        resumes = api.get_resumes()
+
+        assert resumes[0]["counters"]["total_views"] == 27
+        assert resumes[0]["counters"]["new_views"] == 3
+        assert resumes[1]["counters"]["total_views"] == 9
+        assert resumes[1]["counters"]["new_views"] == 1
+
 
 class TestConfig:
     def test_get_config_masks_top_level_secrets(self, api):
@@ -555,6 +585,47 @@ class TestRefreshNegotiations:
         assert row is not None
         assert row.resume_id is None
         assert row.vacancy_id == int(item["vacancy"]["id"])
+
+    def test_sync_enriches_vacancy_employer_and_resume(
+        self,
+        api,
+        mock_tool,
+    ):
+        raw = {
+            "id": "4455667788",
+            "state": {"id": "interview", "name": "Собеседование"},
+            "created_at": "2026-08-04T10:00:00+03:00",
+            "updated_at": "2026-08-04T11:00:00+03:00",
+            "chat_id": 33445566,
+            "vacancy": {"id": "444"},
+        }
+        detail = {
+            "id": "4455667788",
+            "resume": {"id": "res1"},
+            "vacancy": {
+                "id": "444",
+                "name": "Product Manager",
+                "alternate_url": "https://hh.ru/vacancy/444",
+                "area": {"id": "2", "name": "Санкт-Петербург"},
+                "employer": {
+                    "id": "777",
+                    "name": "ООО Тест",
+                    "alternate_url": "https://hh.ru/employer/777",
+                },
+            },
+        }
+        mock_tool.get_negotiations.return_value = [raw]
+        mock_tool.api_client.get.return_value = detail
+
+        result = api.refresh_negotiations()
+
+        assert result == {"status": "ok", "count": 1}
+        rows = api.get_negotiations_from_db()
+        assert rows[0]["state"] == "interview"
+        assert rows[0]["resume_id"] == "res1"
+        assert rows[0]["vacancy_name"] == "Product Manager"
+        assert rows[0]["vacancy_url"] == "https://hh.ru/vacancy/444"
+        assert rows[0]["employer_name"] == "ООО Тест"
 
 
 class TestProfiles:
