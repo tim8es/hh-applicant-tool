@@ -190,6 +190,8 @@ function _renderAuthError(reason, errMsg) {
     let text = '';
     if (reason === 'token_invalid') {
         text = 'Сохранённый токен недействителен и был удалён. Войдите заново.';
+    } else if (reason === 'wrong_role') {
+        text = 'Этот профиль был авторизован не как соискатель. Токен удалён — войдите заново под аккаунтом соискателя.';
     } else if (reason === 'error') {
         text = 'Ошибка проверки авторизации: ' + (errMsg || 'неизвестная');
     }

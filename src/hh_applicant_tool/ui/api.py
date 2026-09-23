@@ -209,6 +209,17 @@ class Api:
             return {"authorized": False, "user": None, "reason": "no_token"}
         try:
             user = self._tool.get_me()
+            if user.get("auth_type") != "applicant":
+                logger.warning(
+                    "get_status: expected applicant token, got auth_type=%r",
+                    user.get("auth_type"),
+                )
+                self._clear_token()
+                return {
+                    "authorized": False,
+                    "user": None,
+                    "reason": "wrong_role",
+                }
             return {"authorized": True, "user": user}
         except Exception as e:
             logger.warning("get_status error: %s", e)

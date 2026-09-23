@@ -49,6 +49,7 @@ def mock_tool():
         {"id": "res2", "title": "Go Dev", "status": {"name": "blocked"}},
     ]
     tool.get_me.return_value = {
+        "auth_type": "applicant",
         "first_name": "Иван",
         "last_name": "Петров",
         "email": "test@example.com",
@@ -75,6 +76,28 @@ class TestGetStatus:
         status = api.get_status()
         assert status["authorized"] is False
         assert status["user"] is None
+
+    def test_rejects_employer_token_and_clears_it(self, api, mock_tool):
+        mock_tool.get_me.return_value = {
+            "auth_type": "employer",
+            "first_name": "Иван",
+            "last_name": "Петров",
+        }
+        mock_tool.api_client.access_token = "USER employer-token"
+        mock_tool.api_client.refresh_token = "refresh-token"
+        mock_tool.api_client.access_expires_at = 123
+
+        status = api.get_status()
+
+        assert status == {
+            "authorized": False,
+            "user": None,
+            "reason": "wrong_role",
+        }
+        assert mock_tool.config["token"] == {}
+        assert mock_tool.api_client.access_token is None
+        assert mock_tool.api_client.refresh_token is None
+        assert mock_tool.api_client.access_expires_at == 0
 
 
 class TestGetResumes:

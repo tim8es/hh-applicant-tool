@@ -170,6 +170,9 @@ class OAuthClient(BaseClient):
             response_type="code",
             scope=self.scope,
             state=self.state,
+            role="applicant",
+            force_role="true",
+            force_login="true",
         )
         params_qs = urlencode({k: v for k, v in params.items() if v})
         return self.resolve_url(f"/authorize?{params_qs}")

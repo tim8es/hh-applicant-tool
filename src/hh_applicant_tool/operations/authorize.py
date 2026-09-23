@@ -73,6 +73,23 @@ class Operation(BaseOperation):
     def selector_timeout(self) -> int | None:
         return None if self.is_headless else 5000
 
+    @staticmethod
+    def _ensure_applicant_role(api_client, user: dict) -> None:
+        if user.get("auth_type") == "applicant":
+            return
+
+        api_client.handle_access_token(
+            {
+                "access_token": None,
+                "refresh_token": None,
+                "access_expires_at": 0,
+            }
+        )
+        raise ValueError(
+            "HH.RU авторизовал аккаунт не как соискателя. "
+            "Войдите заново под аккаунтом соискателя."
+        )
+
     def setup_parser(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("username", nargs="?", help="Email или телефон")
         parser.add_argument("--password", "-p", help="Пароль для входа")
@@ -176,9 +193,7 @@ class Operation(BaseOperation):
 
                 page.on("request", handle_request)
 
-                authorize_url = (
-                    api_client.oauth_client.authorize_url  # + "&role=applicant"
-                )
+                authorize_url = api_client.oauth_client.authorize_url
                 logger.debug(f"Переход на страницу OAuth: {authorize_url}")
                 await page.goto(
                     authorize_url,
@@ -216,6 +231,8 @@ class Operation(BaseOperation):
                     api_client.oauth_client.authenticate, auth_code
                 )
                 api_client.handle_access_token(token)
+                user = await asyncio.to_thread(self._tool.get_me)
+                self._ensure_applicant_role(api_client, user)
 
                 print("Авторизация прошла успешно!")
 
