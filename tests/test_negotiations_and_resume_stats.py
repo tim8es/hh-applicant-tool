@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from hh_applicant_tool.main import HHApplicantTool
@@ -110,7 +111,8 @@ def test_resume_statistics_parses_hh_initial_state():
         status_code=200,
         url="https://hh.ru/applicant/resumes",
         text=(
-            '<template id="HH-Lux-InitialState">'
+            '<template class="lux-state" '
+            'id="HH-Lux-InitialState" data-version="2">'
             + raw
             + "</template>"
         ),
@@ -127,3 +129,71 @@ def test_resume_statistics_parses_hh_initial_state():
             "search_shows": 31,
         }
     }
+
+
+def test_resume_statistics_maps_ssr_id_to_resume_hash():
+    tool = HHApplicantTool()
+    payload = {
+        "applicantResumes": [
+            {
+                "hash": "resume-hash",
+                "_attributes": {"id": "api-resume-id"},
+            }
+        ],
+        "applicantResumesStatistics": {
+            "resumes": {
+                "api-resume-id": {
+                    "statistics": {
+                        "searchShows": {"count": 48},
+                        "views": {"count": 9},
+                    }
+                }
+            }
+        },
+    }
+    import html
+    import json
+
+    response = SimpleNamespace(
+        status_code=200,
+        url="https://hh.ru/applicant/resumes",
+        text=(
+            '<template id="HH-Lux-InitialState" data-extra="1">'
+            + html.escape(json.dumps(payload))
+            + "</template>"
+        ),
+    )
+    tool.__dict__["session"] = SimpleNamespace(get=lambda url: response)
+
+    stats = tool.get_resume_statistics()
+
+    assert stats["api-resume-id"]["search_shows"] == 48
+    assert stats["resume-hash"]["search_shows"] == 48
+
+
+def test_resume_views_last_days_counts_only_recent_items():
+    tool = HHApplicantTool()
+    now = datetime.now(timezone.utc)
+    pages = [
+        {
+            "items": [
+                {"created_at": (now - timedelta(days=1)).isoformat()},
+                {"created_at": (now - timedelta(days=6)).isoformat()},
+            ],
+            "page": 0,
+            "pages": 2,
+        },
+        {
+            "items": [
+                {"created_at": (now - timedelta(days=8)).isoformat()},
+            ],
+            "page": 1,
+            "pages": 2,
+        },
+    ]
+    client = _FakeApiClient(pages)
+    tool.__dict__["api_client"] = client
+
+    assert tool.get_resume_views_last_days("res1", days=7) == 2
+    assert len(client.calls) == 2
+    assert client.calls[0][0] == "/resumes/res1/views"
