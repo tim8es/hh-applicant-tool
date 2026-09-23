@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import MagicMock
 
@@ -48,3 +49,55 @@ def test_applicant_role_validation_rejects_employer_and_clears_token():
             "access_expires_at": 0,
         }
     )
+
+
+def test_session_cookie_from_playwright_is_not_marked_expired():
+    op = Operation()
+    jar = MagicMock()
+    op._tool = SimpleNamespace(
+        session=SimpleNamespace(cookies=jar)
+    )
+
+    op._set_session_cookies(
+        [
+            {
+                "name": "hhtoken",
+                "value": "cookie-value",
+                "domain": ".hh.ru",
+                "path": "/",
+                "secure": True,
+                "expires": -1,
+                "httpOnly": True,
+            }
+        ]
+    )
+
+    cookie = jar.set_cookie.call_args.args[0]
+    assert cookie.expires is None
+    assert cookie.discard is True
+
+
+def test_persistent_playwright_cookie_keeps_expiry():
+    op = Operation()
+    jar = MagicMock()
+    op._tool = SimpleNamespace(
+        session=SimpleNamespace(cookies=jar)
+    )
+
+    op._set_session_cookies(
+        [
+            {
+                "name": "_xsrf",
+                "value": "cookie-value",
+                "domain": ".hh.ru",
+                "path": "/",
+                "secure": True,
+                "expires": 1893456000,
+                "httpOnly": False,
+            }
+        ]
+    )
+
+    cookie = jar.set_cookie.call_args.args[0]
+    assert cookie.expires == 1893456000
+    assert cookie.discard is False
