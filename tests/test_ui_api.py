@@ -177,6 +177,35 @@ class TestGetResumes:
         assert resumes[1]["counters"]["total_views"] == 9
         assert resumes[1]["counters"]["new_views"] == 1
 
+    def test_web_zeroes_do_not_override_full_resume_views(
+        self,
+        api,
+        mock_tool,
+    ):
+        mock_tool.api_client.get.side_effect = lambda endpoint: {
+            "/resumes/res1": {
+                "id": "res1",
+                "title": "Python Dev",
+                "total_views": 27,
+                "new_views": 3,
+            },
+            "/resumes/res2": {
+                "id": "res2",
+                "title": "Go Dev",
+                "total_views": 9,
+                "new_views": 1,
+            },
+        }[endpoint]
+        mock_tool.get_resume_statistics.return_value = {
+            "res1": {"views": 0, "new_views": 0}
+        }
+
+        resumes = api.get_resumes()
+
+        assert resumes[0]["counters"]["total_views"] == 27
+        assert resumes[0]["counters"]["new_views"] == 3
+        assert resumes[0]["counters"]["views_7d"] == 0
+
 
 class TestConfig:
     def test_get_config_masks_top_level_secrets(self, api):
