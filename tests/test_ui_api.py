@@ -56,7 +56,6 @@ def mock_tool():
         "email": "test@example.com",
     }
     tool.get_resume_statistics.return_value = {}
-    tool.get_resume_views_last_days.return_value = 0
     # Реальный storage для тестирования пресетов через Api
     conn = sqlite3.connect(":memory:")
     tool.storage = StorageFacade(conn)
@@ -207,21 +206,6 @@ class TestGetResumes:
         assert resumes[0]["counters"]["total_views"] == 27
         assert resumes[0]["counters"]["new_views"] == 3
         assert resumes[0]["counters"]["views_7d"] == 0
-
-    def test_uses_view_history_when_ssr_has_no_seven_day_views(
-        self,
-        api,
-        mock_tool,
-    ):
-        mock_tool.get_resume_statistics.return_value = {}
-        mock_tool.get_resume_views_last_days.side_effect = [7, 2]
-
-        resumes = api.get_resumes()
-
-        assert resumes[0]["counters"]["views_7d"] == 7
-        assert resumes[1]["counters"]["views_7d"] == 2
-        assert mock_tool.get_resume_views_last_days.call_count == 2
-
 
 class TestConfig:
     def test_get_config_masks_top_level_secrets(self, api):
