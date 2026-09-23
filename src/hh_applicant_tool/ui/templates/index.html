@@ -374,10 +374,12 @@
                 <div class="flex items-center gap-3">
                     <select id="neg-status-filter" onchange="loadNegotiations()" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:border-blue-400">
                         <option value="" selected>Все статусы</option>
-                        <option value="active">Активные</option>
-                        <option value="response">Получен ответ</option>
+                        <option value="response">Отклик</option>
                         <option value="invitation">Приглашение</option>
+                        <option value="interview">Собеседование</option>
+                        <option value="hired">Выход на работу</option>
                         <option value="discard">Отказ</option>
+                        <option value="hidden">Скрытый</option>
                     </select>
                     <button onclick="refreshNegotiations()" class="btn-sm btn-secondary">&#8635; Синхронизировать с hh.ru</button>
                 </div>
