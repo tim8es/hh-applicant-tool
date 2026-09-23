@@ -11,6 +11,7 @@ import smtplib
 import sqlite3
 import sys
 import threading
+from datetime import datetime, timedelta, timezone
 from collections.abc import Sequence
 from contextlib import contextmanager
 from functools import cached_property
@@ -369,15 +370,20 @@ class HHApplicantTool(MegaTool):
     
     def parse_initial_state(self, response: requests.Response) -> dict[str, Any]:
         if response.status_code != 200:
-            raise Error(f"Неожиданный код ответа: {response.status_code} {response.url}")
+            raise Error(
+                f"Неожиданный код ответа: {response.status_code} "
+                f"{response.url}"
+            )
 
-        try:
-            raw_config = response.text.split('id="HH-Lux-InitialState">')[1].split(
-                "</template>"
-            )[0]
-        except IndexError as ex:
-            raise Error(f"Template with config not found on {response.url}") from ex
+        match = re.search(
+            r'<template[^>]*id=["\']HH-Lux-InitialState["\'][^>]*>'
+            r'([\s\S]*?)</template>',
+            response.text,
+        )
+        if not match:
+            raise Error(f"Template with config not found on {response.url}")
 
+        raw_config = match.group(1)
         if "&#" in raw_config or "&quot;" in raw_config or "&amp;" in raw_config:
             raw_config = html.unescape(raw_config)
 
@@ -454,6 +460,59 @@ class HHApplicantTool(MegaTool):
             if metrics:
                 result[str(resume_id)] = metrics
         return result
+
+    def get_resume_views_last_days(
+        self,
+        resume_id: str,
+        days: int = 7,
+    ) -> int:
+        """Count resume view events from the official API for recent days."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        count_views = 0
+
+        for page in range(200):
+            response: dict[str, Any] = self.api_client.get(
+                f"/resumes/{resume_id}/views",
+                page=page,
+                per_page=50,
+            )
+            items = response.get("items") or []
+            if not items:
+                break
+
+            reached_older = False
+            for item in items:
+                raw_created = item.get("created_at")
+                if not raw_created:
+                    continue
+                try:
+                    created_at = datetime.fromisoformat(
+                        str(raw_created).replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    logger.warning(
+                        "Invalid resume view created_at: %r",
+                        raw_created,
+                    )
+                    continue
+
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+
+                if created_at >= cutoff:
+                    count_views += 1
+                else:
+                    reached_older = True
+
+            if reached_older:
+                break
+
+            pages = response.get("pages")
+            current_page = response.get("page", page)
+            if isinstance(pages, int) and current_page + 1 >= pages:
+                break
+
+        return count_views
 
     # TODO: добавить еще методов или те удалить?
 
