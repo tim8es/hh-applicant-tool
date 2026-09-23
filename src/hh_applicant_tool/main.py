@@ -427,17 +427,32 @@ class HHApplicantTool(MegaTool):
             if not isinstance(statistics, dict):
                 continue
 
-            views = statistics.get("views") or {}
-            invitations = statistics.get("invitations") or {}
-            search_shows = statistics.get("searchShows") or {}
+            views = statistics.get("views")
+            invitations = statistics.get("invitations")
+            search_shows = statistics.get("searchShows")
 
-            result[str(resume_id)] = {
-                "views": int(views.get("count") or 0),
-                "new_views": int(views.get("countNew") or 0),
-                "invitations": int(invitations.get("count") or 0),
-                "new_invitations": int(invitations.get("countNew") or 0),
-                "search_shows": int(search_shows.get("count") or 0),
-            }
+            metrics: dict[str, int] = {}
+            if isinstance(views, dict) and "count" in views:
+                metrics["views"] = int(views.get("count") or 0)
+                if "countNew" in views:
+                    metrics["new_views"] = int(
+                        views.get("countNew") or 0
+                    )
+            if isinstance(invitations, dict) and "count" in invitations:
+                metrics["invitations"] = int(
+                    invitations.get("count") or 0
+                )
+                if "countNew" in invitations:
+                    metrics["new_invitations"] = int(
+                        invitations.get("countNew") or 0
+                    )
+            if isinstance(search_shows, dict) and "count" in search_shows:
+                metrics["search_shows"] = int(
+                    search_shows.get("count") or 0
+                )
+
+            if metrics:
+                result[str(resume_id)] = metrics
         return result
 
     # TODO: добавить еще методов или те удалить?
