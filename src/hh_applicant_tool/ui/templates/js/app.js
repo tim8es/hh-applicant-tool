@@ -329,10 +329,11 @@ async function loadResumes() {
             const status = r.status ? r.status.id : 'not_published';
             const statusName = r.status ? r.status.name : 'не опубликовано';
             const counters = r.counters || {};
-            const views = (counters.views ?? counters.total_views ?? 0);
-            const newViews = (counters.new_views || 0);
-            const invites = (counters.invitations || 0);
-            const newInvites = (counters.new_invitations || 0);
+            const views = (counters.total_views ?? counters.views ?? null);
+            const newViews = (counters.new_views ?? null);
+            const shows = (counters.search_shows ?? null);
+            const invites = (counters.invitations ?? null);
+            const newInvites = (counters.new_invitations ?? null);
             const negotiations = (r.negotiations_count || 0);
             const url = safeUrl(r.alternate_url || r.url || '');
             return `<div class="resume-card">
@@ -341,9 +342,10 @@ async function loadResumes() {
                     <span class="resume-badge ${escapeHtml(status)}">${escapeHtml(statusName)}</span>
                 </div>
                 <div class="resume-card-meta">
-                    <span class="resume-counter">&#128065; ${views} просмотров за 7 дней${newViews > 0 ? ` <span style="color:#2563eb">(+${newViews} новых)</span>` : ''}</span>
+                    <span class="resume-counter">&#128065; ${views == null ? '—' : views} просмотров${newViews > 0 ? ` <span style="color:#2563eb">(+${newViews} новых)</span>` : ''}</span>
                     <span class="resume-counter">&#128233; ${negotiations} откликов/приглашений синхронизировано</span>
-                    <span class="resume-counter">&#128231; ${invites} приглашений за 7 дней${newInvites > 0 ? ` <span style="color:#2563eb">(+${newInvites} новых)</span>` : ''}</span>
+                    <span class="resume-counter">&#128269; ${shows == null ? '—' : shows} показов за 7 дней</span>
+                    <span class="resume-counter">&#128231; ${invites == null ? '—' : invites} приглашений за 7 дней${newInvites > 0 ? ` <span style="color:#2563eb">(+${newInvites} новых)</span>` : ''}</span>
                 </div>
                 <div class="flex items-center justify-between mt-1">
                     <span class="text-xs text-gray-400">ID: ${escapeHtml(r.id)}</span>
@@ -736,9 +738,12 @@ function safeUrl(url) {
 
 const STATE_LABELS = {
     active: 'Активный',
-    response: 'Ответ работодателя',
+    response: 'Отклик',
     invitation: 'Приглашение',
     discard: 'Отказ',
+    hidden: 'Скрытый',
+    interview: 'Собеседование',
+    hired: 'Выход на работу',
 };
 
 function stateClass(state) {
@@ -760,9 +765,12 @@ async function loadNegotiations() {
         }
         tbody.innerHTML = filtered.map(n => {
             const date = n.created_at ? n.created_at.substring(0, 10) : '—';
-            const name = escapeHtml(n.vacancy_name || '—');
-            const link = n.vacancy_url
-                ? `<a href="${escapeHtml(safeUrl(n.vacancy_url))}" target="_blank" rel="noopener noreferrer">${name}</a>`
+            const vacancyLabel = n.vacancy_name || (n.vacancy_id ? `Вакансия #${n.vacancy_id}` : '—');
+            const name = escapeHtml(vacancyLabel);
+            const vacancyUrl = n.vacancy_url || (n.vacancy_id ? `https://hh.ru/vacancy/${n.vacancy_id}` : '');
+            const safeVacancyUrl = safeUrl(vacancyUrl);
+            const link = safeVacancyUrl !== '#'
+                ? `<a href="${escapeHtml(safeVacancyUrl)}" target="_blank" rel="noopener noreferrer">${name}</a>`
                 : name;
             const label = STATE_LABELS[n.state] || n.state;
             return `<tr>
