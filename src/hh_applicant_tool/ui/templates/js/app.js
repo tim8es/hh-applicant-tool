@@ -329,7 +329,8 @@ async function loadResumes() {
             const status = r.status ? r.status.id : 'not_published';
             const statusName = r.status ? r.status.name : 'не опубликовано';
             const counters = r.counters || {};
-            const views = (counters.total_views ?? counters.views ?? null);
+            const totalViews = (counters.total_views ?? counters.views ?? null);
+            const views7d = (counters.views_7d ?? null);
             const newViews = (counters.new_views ?? null);
             const shows = (counters.search_shows ?? null);
             const invites = (counters.invitations ?? null);
@@ -342,9 +343,10 @@ async function loadResumes() {
                     <span class="resume-badge ${escapeHtml(status)}">${escapeHtml(statusName)}</span>
                 </div>
                 <div class="resume-card-meta">
-                    <span class="resume-counter">&#128065; ${views == null ? '—' : views} просмотров${newViews > 0 ? ` <span style="color:#2563eb">(+${newViews} новых)</span>` : ''}</span>
-                    <span class="resume-counter">&#128233; ${negotiations} откликов/приглашений синхронизировано</span>
+                    <span class="resume-counter">&#128065; ${totalViews == null ? '—' : totalViews} просмотров всего${newViews > 0 ? ` <span style="color:#2563eb">(+${newViews} новых)</span>` : ''}</span>
+                    <span class="resume-counter">&#128065; ${views7d == null ? '—' : views7d} просмотров за 7 дней</span>
                     <span class="resume-counter">&#128269; ${shows == null ? '—' : shows} показов за 7 дней</span>
+                    <span class="resume-counter">&#128233; ${negotiations} откликов/приглашений синхронизировано</span>
                     <span class="resume-counter">&#128231; ${invites == null ? '—' : invites} приглашений за 7 дней${newInvites > 0 ? ` <span style="color:#2563eb">(+${newInvites} новых)</span>` : ''}</span>
                 </div>
                 <div class="flex items-center justify-between mt-1">
