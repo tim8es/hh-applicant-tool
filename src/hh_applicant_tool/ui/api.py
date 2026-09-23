@@ -542,12 +542,14 @@ class Api:
 
         vacancy = dict(vacancy)
         vacancy_id = vacancy["id"]
-        vacancy.setdefault("name", f"Вакансия #{vacancy_id}")
-        vacancy.setdefault(
-            "alternate_url",
-            f"https://hh.ru/vacancy/{vacancy_id}",
-        )
-        vacancy.setdefault("area", {"id": 0, "name": ""})
+        if not vacancy.get("name"):
+            vacancy["name"] = f"Вакансия #{vacancy_id}"
+        if not vacancy.get("alternate_url"):
+            vacancy["alternate_url"] = (
+                f"https://hh.ru/vacancy/{vacancy_id}"
+            )
+        if not isinstance(vacancy.get("area"), dict):
+            vacancy["area"] = {"id": 0, "name": ""}
 
         employer = vacancy.get("employer") or {}
         if (
