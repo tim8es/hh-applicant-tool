@@ -353,6 +353,22 @@ class Operation(BaseOperation):
 
     def _set_session_cookies(self, cookies: list[dict[str, typing.Any]]):
         for c in cookies:
+            raw_expires = c.get("expires")
+            try:
+                expires_value = (
+                    int(raw_expires)
+                    if raw_expires is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                expires_value = None
+
+            # Playwright uses -1 for browser-session cookies.
+            # Passing -1/0 to http.cookiejar marks them as already expired,
+            # so requests silently stops sending the hh.ru web session.
+            is_session_cookie = not expires_value or expires_value <= 0
+            expires = None if is_session_cookie else expires_value
+
             cookie = Cookie(
                 version=0,
                 name=c["name"],
@@ -365,8 +381,8 @@ class Operation(BaseOperation):
                 path=c["path"],
                 path_specified=True,
                 secure=c["secure"],
-                expires=int(c.get("expires") or 0),
-                discard=False,
+                expires=expires,
+                discard=is_session_cookie,
                 comment=None,
                 comment_url=None,
                 rest={"HttpOnly": str(c.get("httpOnly", False))},
