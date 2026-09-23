@@ -8,6 +8,7 @@ Api оборачивает HHApplicantTool и предоставляет мет�
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -732,3 +733,51 @@ class TestProfiles:
 
         assert result["status"] == "error"
         assert "авторизации" in result["message"]
+
+
+class TestStatisticsDates:
+    def test_activity_uses_iso_date_prefix_with_timezone(self, api, mock_tool):
+        created = datetime.now(timezone.utc) - timedelta(days=1)
+        day = created.date().isoformat()
+        hh_timestamp = created.strftime("%Y-%m-%dT%H:%M:%S+0300")
+
+        conn = mock_tool.storage.negotiations.conn
+        conn.execute(
+            """
+            INSERT INTO negotiations
+                (id, state, vacancy_id, chat_id, created_at)
+            VALUES
+                (?, ?, ?, ?, ?)
+            """,
+            (991001, "response", 881001, 771001, hh_timestamp),
+        )
+        conn.commit()
+
+        stats = api.get_statistics()
+
+        assert None not in stats["daily_negotiations"]
+        assert "null" not in stats["daily_negotiations"]
+        assert stats["daily_negotiations"][day] == 1
+
+    def test_skipped_activity_uses_iso_date_prefix(self, api, mock_tool):
+        created = datetime.now(timezone.utc) - timedelta(days=1)
+        day = created.date().isoformat()
+        hh_timestamp = created.strftime("%Y-%m-%dT%H:%M:%S+0300")
+
+        conn = mock_tool.storage.negotiations.conn
+        conn.execute(
+            """
+            INSERT INTO skipped_vacancies
+                (resume_id, vacancy_id, reason, created_at)
+            VALUES
+                (?, ?, ?, ?)
+            """,
+            ("res-stats", 881002, "ai_rejected", hh_timestamp),
+        )
+        conn.commit()
+
+        stats = api.get_statistics()
+
+        assert None not in stats["daily_skipped"]
+        assert "null" not in stats["daily_skipped"]
+        assert stats["daily_skipped"][day] == 1
