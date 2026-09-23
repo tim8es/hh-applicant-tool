@@ -416,7 +416,20 @@ class HHApplicantTool(MegaTool):
             logger.warning("Unable to load resume statistics: %s", ex)
             return {}
 
-        stats_root = config.get("applicantResumesStatistics", {})
+        stats_root = config.get("applicantResumesStatistics")
+        if not isinstance(stats_root, dict):
+            stack: list[Any] = [config]
+            while stack and not isinstance(stats_root, dict):
+                current = stack.pop()
+                if isinstance(current, dict):
+                    candidate = current.get("applicantResumesStatistics")
+                    if isinstance(candidate, dict):
+                        stats_root = candidate
+                        break
+                    stack.extend(current.values())
+                elif isinstance(current, list):
+                    stack.extend(current)
+
         resumes_stats = (
             stats_root.get("resumes", {})
             if isinstance(stats_root, dict)
@@ -459,6 +472,38 @@ class HHApplicantTool(MegaTool):
 
             if metrics:
                 result[str(resume_id)] = metrics
+
+        applicant_resumes = config.get("applicantResumes") or []
+        if isinstance(applicant_resumes, list):
+            for resume in applicant_resumes:
+                if not isinstance(resume, dict):
+                    continue
+                attrs = resume.get("_attributes") or {}
+                if not isinstance(attrs, dict):
+                    attrs = {}
+                aliases = [
+                    resume.get("id"),
+                    resume.get("hash"),
+                    attrs.get("id"),
+                    attrs.get("hash"),
+                ]
+                aliases = [str(v) for v in aliases if v]
+
+                metrics = next(
+                    (
+                        result[alias]
+                        for alias in aliases
+                        if alias in result
+                    ),
+                    None,
+                )
+                if metrics is None and len(result) == 1 and len(applicant_resumes) == 1:
+                    metrics = next(iter(result.values()))
+
+                if metrics is not None:
+                    for alias in aliases:
+                        result.setdefault(alias, metrics)
+
         return result
 
     def get_resume_views_last_days(
