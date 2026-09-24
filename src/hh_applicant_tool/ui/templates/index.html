@@ -466,6 +466,32 @@
                     </div>
                 </fieldset>
 
+                <!-- AI для решения CAPTCHA -->
+                <fieldset class="config-section">
+                    <legend>AI для решения CAPTCHA</legend>
+                    <p class="field-hint mb-3">
+                        Используется для автоматического распознавания CAPTCHA при откликах.
+                        Нужна <strong>vision-модель</strong>, которая умеет принимать изображения.
+                    </p>
+                    <div class="form-grid-2">
+                        <div class="form-group md:col-span-2">
+                            <label>API ключ <span class="tip" data-tip="Ключ OpenAI-совместимого AI-провайдера.&#10;Оставьте пустым — текущий ключ не изменится.">?</span></label>
+                            <input type="password" data-config-key="openai_captcha.api_key" data-config-secret="true"
+                                   autocomplete="new-password" placeholder="Введите новый ключ (пустое поле — не менять)">
+                        </div>
+                        <div class="form-group">
+                            <label>Эндпоинт API <span class="tip" data-tip="Полный OpenAI-совместимый URL /chat/completions.&#10;Провайдер и выбранная модель должны поддерживать изображения.">?</span></label>
+                            <input type="text" data-config-key="openai_captcha.base_url"
+                                   placeholder="https://api.openai.com/v1/chat/completions">
+                        </div>
+                        <div class="form-group">
+                            <label>Vision-модель <span class="tip" data-tip="Модель должна уметь анализировать изображения.&#10;Например: gpt-4o-mini или другая vision-модель вашего провайдера.">?</span></label>
+                            <input type="text" data-config-key="openai_captcha.model"
+                                   placeholder="gpt-4o-mini">
+                        </div>
+                    </div>
+                </fieldset>
+
                 <!-- Прокси -->
                 <fieldset class="config-section">
                     <legend>Прокси</legend>
