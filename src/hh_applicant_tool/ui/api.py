@@ -624,8 +624,9 @@ class Api:
             result: dict[str, Any] = {
                 "status": "ok",
                 "count": count,
-                "skipped": skipped,
             }
+            if skipped:
+                result["skipped"] = skipped
             if errors:
                 result["warning"] = (
                     f"Не удалось обработать {skipped} отклик(а/ов). "
