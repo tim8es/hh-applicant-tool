@@ -39,3 +39,15 @@ def test_resume_metrics_are_lazy_loaded_after_startup():
     assert "pywebview.api.get_resume_metrics()" in js
     assert "async function loadResumes(loadMetrics = true)" in js
     assert "void loadResumeMetrics(resumes, generation);" in js
+
+
+
+def test_resume_metric_labels_are_unambiguous():
+    js = (TEMPLATES_DIR / "js" / "app.js").read_text(encoding="utf-8")
+
+    assert "История откликов:" in js
+    assert "Приглашения за 7 дней:" in js
+    assert "Просмотры всего:" in js
+    assert "Просмотры за 7 дней:" in js
+    assert "Показы за 7 дней:" in js
+    assert "откликов/приглашений синхронизировано" not in js
