@@ -292,16 +292,12 @@ class Api:
         return {"status": "ok"}
 
     def get_resumes(self) -> list[dict]:
+        """Return resume cards without slow HH web-statistics requests."""
         client = self._tool.api_client
         if not client.access_token and not client.refresh_token:
             return []
         try:
             resumes = [dict(item) for item in self._tool.get_resumes()]
-            try:
-                resume_stats = self._tool.get_resume_statistics()
-            except Exception as e:
-                logger.warning("get_resume_statistics error: %s", e)
-                resume_stats = {}
 
             try:
                 rows = self._tool.storage.negotiations.conn.execute(
@@ -321,24 +317,11 @@ class Api:
                 negotiation_counts = {}
 
             result = []
-            for short_resume in resumes:
-                resume_id = str(short_resume.get("id") or "")
-                resume = dict(short_resume)
-
-                if resume_id:
-                    try:
-                        full_resume = client.get(f"/resumes/{resume_id}")
-                        if isinstance(full_resume, dict):
-                            resume.update(full_resume)
-                    except Exception as e:
-                        logger.warning(
-                            "get full resume %s error: %s",
-                            resume_id,
-                            e,
-                        )
-
+            for resume in resumes:
+                resume_id = str(resume.get("id") or "")
                 counters = dict(resume.get("counters") or {})
 
+                # /resumes/mine already returns these owner counters.
                 if resume.get("total_views") is not None:
                     counters["total_views"] = int(
                         resume.get("total_views") or 0
@@ -348,27 +331,10 @@ class Api:
                         resume.get("new_views") or 0
                     )
 
-                statistics = resume_stats.get(resume_id, {})
-                if "views" in statistics:
-                    counters["views_7d"] = statistics["views"]
-                    counters.setdefault("views", statistics["views"])
-
-                if "new_views" in statistics:
-                    counters["new_views_7d"] = statistics["new_views"]
-                    counters.setdefault("new_views", statistics["new_views"])
-                for key in (
-                    "invitations",
-                    "new_invitations",
-                    "search_shows",
-                ):
-                    if key in statistics:
-                        counters[key] = statistics[key]
-
                 resume["counters"] = counters
                 resume["negotiations_count"] = negotiation_counts.get(
                     resume_id, 0
                 )
-                resume["web_statistics_available"] = bool(statistics)
                 result.append(resume)
 
             return result
@@ -379,6 +345,32 @@ class Api:
             else:
                 logger.error("get_resumes error: %s", e)
             return []
+
+    def get_resume_metrics(self) -> dict[str, dict[str, int]]:
+        """Load slower seven-day resume statistics from the HH web session."""
+        try:
+            statistics = self._tool.get_resume_statistics()
+        except Exception as e:
+            logger.warning("get_resume_metrics error: %s", e)
+            return {}
+
+        result: dict[str, dict[str, int]] = {}
+        for resume_id, values in statistics.items():
+            metrics: dict[str, int] = {}
+            if "views" in values:
+                metrics["views_7d"] = int(values["views"])
+            if "new_views" in values:
+                metrics["new_views_7d"] = int(values["new_views"])
+            for key in (
+                "invitations",
+                "new_invitations",
+                "search_shows",
+            ):
+                if key in values:
+                    metrics[key] = int(values[key])
+            if metrics:
+                result[str(resume_id)] = metrics
+        return result
 
     def get_config(self) -> dict[str, Any]:
         return _mask_secrets(dict(self._tool.config))
