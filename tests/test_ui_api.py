@@ -73,6 +73,11 @@ def mock_tool():
         "email": "test@example.com",
     }
     tool.get_resume_statistics.return_value = {}
+    tool.get_resume_statistics_result.return_value = {
+        "status": "unavailable",
+        "message": "",
+        "metrics": {},
+    }
     # Реальный storage для тестирования пресетов через Api
     conn = sqlite3.connect(":memory:")
     tool.storage = StorageFacade(conn)
@@ -162,27 +167,52 @@ class TestGetResumes:
         api,
         mock_tool,
     ):
-        mock_tool.get_resume_statistics.return_value = {
-            "res1": {
-                "views": 12,
-                "new_views": 3,
-                "invitations": 4,
-                "new_invitations": 1,
-                "search_shows": 50,
-            }
+        mock_tool.get_resume_statistics_result.return_value = {
+            "status": "ok",
+            "message": "",
+            "metrics": {
+                "res1": {
+                    "views": 12,
+                    "new_views": 3,
+                    "invitations": 4,
+                    "new_invitations": 1,
+                    "search_shows": 50,
+                }
+            },
         }
 
-        metrics = api.get_resume_metrics()
+        result = api.get_resume_metrics()
 
-        assert metrics == {
-            "res1": {
-                "views_7d": 12,
-                "new_views_7d": 3,
-                "invitations": 4,
-                "new_invitations": 1,
-                "search_shows": 50,
-            }
+        assert result == {
+            "status": "ok",
+            "message": "",
+            "metrics": {
+                "res1": {
+                    "views_7d": 12,
+                    "new_views_7d": 3,
+                    "invitations": 4,
+                    "new_invitations": 1,
+                    "search_shows": 50,
+                }
+            },
         }
+
+    def test_resume_metrics_surface_auth_required(
+        self,
+        api,
+        mock_tool,
+    ):
+        mock_tool.get_resume_statistics_result.return_value = {
+            "status": "auth_required",
+            "message": "Переавторизуйтесь",
+            "metrics": {},
+        }
+
+        result = api.get_resume_metrics()
+
+        assert result["status"] == "auth_required"
+        assert result["message"] == "Переавторизуйтесь"
+        assert result["metrics"] == {}
 
 class TestConfig:
     def test_get_config_masks_top_level_secrets(self, api):
@@ -648,6 +678,59 @@ class TestRefreshNegotiations:
         assert rows[0]["vacancy_name"] == "Product Manager"
         assert rows[0]["vacancy_url"] == "https://hh.ru/vacancy/444"
         assert rows[0]["employer_name"] == "ООО Тест"
+
+    def test_sync_continues_after_one_item_system_error(
+        self,
+        api,
+        mock_tool,
+    ):
+        bad = {
+            "id": "9001",
+            "state": {"id": "response", "name": "Отклик"},
+            "created_at": "2026-09-23T10:00:00+03:00",
+            "updated_at": "2026-09-23T10:00:00+03:00",
+            "chat_id": 9001,
+            "resume": {"id": "res1"},
+            "vacancy": {
+                "id": "901",
+                "name": "Bad vacancy",
+                "alternate_url": "https://hh.ru/vacancy/901",
+                "area": {"id": "2", "name": "Санкт-Петербург"},
+            },
+        }
+        good = {
+            "id": "9002",
+            "state": {"id": "response", "name": "Отклик"},
+            "created_at": "2026-09-23T11:00:00+03:00",
+            "updated_at": "2026-09-23T11:00:00+03:00",
+            "chat_id": 9002,
+            "resume": {"id": "res1"},
+            "vacancy": {
+                "id": "902",
+                "name": "Good vacancy",
+                "alternate_url": "https://hh.ru/vacancy/902",
+                "area": {"id": "2", "name": "Санкт-Петербург"},
+            },
+        }
+        mock_tool.get_negotiations.return_value = [bad, good]
+
+        original_save = api._save_negotiation_context
+
+        def flaky_save(item):
+            if str(item.get("id")) == "9001":
+                raise SystemError("error return without exception set")
+            return original_save(item)
+
+        api._save_negotiation_context = flaky_save
+
+        result = api.refresh_negotiations()
+
+        assert result["status"] == "ok"
+        assert result["count"] == 1
+        assert result["skipped"] == 1
+        assert "SystemError" in result["errors"][0]
+        row = mock_tool.storage.negotiations.get(9002)
+        assert row is not None
 
 
 class TestProfiles:
