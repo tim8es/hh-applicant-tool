@@ -325,7 +325,7 @@ async function loadResumeMetrics(resumes, generation) {
 
         resumes.forEach(r => {
             const values = metrics[String(r.id)] || {};
-            const card = document.querySelector(`.resume-card[data-resume-id="${CSS.escape(String(r.id))}"]`);
+            const card = Array.from(document.querySelectorAll('.resume-card')).find(el => el.dataset.resumeId === String(r.id));
             if (!card) return;
 
             const viewsEl = card.querySelector('[data-resume-metric="views_7d"]');
