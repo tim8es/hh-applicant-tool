@@ -477,19 +477,6 @@ class HHApplicantTool(MegaTool):
                 "metrics": {},
             }
 
-        if not self._is_authenticated(config):
-            logger.warning(
-                "Resume statistics page has no authenticated account state"
-            )
-            return {
-                "status": "auth_required",
-                "message": (
-                    "Web-сессия hh.ru не авторизована. "
-                    "Переавторизуйтесь в текущем профиле."
-                ),
-                "metrics": {},
-            }
-
         stats_root = config.get("applicantResumesStatistics")
         if not isinstance(stats_root, dict):
             stack: list[Any] = [config]
@@ -514,6 +501,15 @@ class HHApplicantTool(MegaTool):
                 "Resume statistics missing in HH initial state; top-level keys: %s",
                 sorted(config.keys())[:40],
             )
+            if not self._is_authenticated(config):
+                return {
+                    "status": "auth_required",
+                    "message": (
+                        "Web-сессия hh.ru не содержит статистику аккаунта. "
+                        "Переавторизуйтесь в текущем профиле."
+                    ),
+                    "metrics": {},
+                }
             return {
                 "status": "unavailable",
                 "message": (
