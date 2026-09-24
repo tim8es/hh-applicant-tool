@@ -51,8 +51,20 @@ def mock_tool():
         },
     })
     tool.get_resumes.return_value = [
-        {"id": "res1", "title": "Python Dev", "status": {"name": "published"}},
-        {"id": "res2", "title": "Go Dev", "status": {"name": "blocked"}},
+        {
+            "id": "res1",
+            "title": "Python Dev",
+            "status": {"name": "published"},
+            "total_views": 27,
+            "new_views": 3,
+        },
+        {
+            "id": "res2",
+            "title": "Go Dev",
+            "status": {"name": "blocked"},
+            "total_views": 9,
+            "new_views": 1,
+        },
     ]
     tool.get_me.return_value = {
         "auth_type": "applicant",
@@ -108,30 +120,26 @@ class TestGetStatus:
 
 
 class TestGetResumes:
-    def test_returns_list(self, api):
+    def test_returns_list_fast_without_web_statistics(self, api, mock_tool):
         resumes = api.get_resumes()
+
         assert len(resumes) == 2
         assert resumes[0]["id"] == "res1"
+        assert resumes[0]["counters"]["total_views"] == 27
+        assert resumes[0]["counters"]["new_views"] == 3
         assert resumes[1]["title"] == "Go Dev"
+        mock_tool.get_resume_statistics.assert_not_called()
+        mock_tool.api_client.get.assert_not_called()
 
     def test_returns_empty_on_error(self, api, mock_tool):
         mock_tool.get_resumes.side_effect = Exception("network error")
         assert api.get_resumes() == []
 
-    def test_merges_resume_statistics_and_negotiation_count(
+    def test_adds_negotiation_count_without_web_request(
         self,
         api,
         mock_tool,
     ):
-        mock_tool.get_resume_statistics.return_value = {
-            "res1": {
-                "views": 12,
-                "new_views": 3,
-                "invitations": 4,
-                "new_invitations": 1,
-                "search_shows": 50,
-            }
-        }
         mock_tool.storage.negotiations.conn.execute(
             """
             INSERT INTO negotiations
@@ -145,72 +153,36 @@ class TestGetResumes:
 
         resumes = api.get_resumes()
 
-        first = resumes[0]
-        assert first["counters"]["views"] == 12
-        assert first["counters"]["new_views"] == 3
-        assert first["counters"]["invitations"] == 4
-        assert first["counters"]["search_shows"] == 50
-        assert first["negotiations_count"] == 2
+        assert resumes[0]["negotiations_count"] == 2
         assert resumes[1]["negotiations_count"] == 0
+        mock_tool.get_resume_statistics.assert_not_called()
 
-    def test_full_resume_api_supplies_real_view_totals(
+    def test_resume_metrics_are_loaded_separately(
         self,
         api,
         mock_tool,
     ):
-        mock_tool.get_resume_statistics.return_value = {}
-        mock_tool.api_client.get.side_effect = lambda endpoint: {
-            "/resumes/res1": {
-                "id": "res1",
-                "title": "Python Dev",
-                "status": {"id": "published", "name": "published"},
-                "total_views": 27,
-                "new_views": 3,
-            },
-            "/resumes/res2": {
-                "id": "res2",
-                "title": "Go Dev",
-                "status": {"id": "blocked", "name": "blocked"},
-                "total_views": 9,
-                "new_views": 1,
-            },
-        }[endpoint]
-
-        resumes = api.get_resumes()
-
-        assert resumes[0]["counters"]["total_views"] == 27
-        assert resumes[0]["counters"]["new_views"] == 3
-        assert resumes[1]["counters"]["total_views"] == 9
-        assert resumes[1]["counters"]["new_views"] == 1
-
-    def test_web_zeroes_do_not_override_full_resume_views(
-        self,
-        api,
-        mock_tool,
-    ):
-        mock_tool.api_client.get.side_effect = lambda endpoint: {
-            "/resumes/res1": {
-                "id": "res1",
-                "title": "Python Dev",
-                "total_views": 27,
-                "new_views": 3,
-            },
-            "/resumes/res2": {
-                "id": "res2",
-                "title": "Go Dev",
-                "total_views": 9,
-                "new_views": 1,
-            },
-        }[endpoint]
         mock_tool.get_resume_statistics.return_value = {
-            "res1": {"views": 0, "new_views": 0}
+            "res1": {
+                "views": 12,
+                "new_views": 3,
+                "invitations": 4,
+                "new_invitations": 1,
+                "search_shows": 50,
+            }
         }
 
-        resumes = api.get_resumes()
+        metrics = api.get_resume_metrics()
 
-        assert resumes[0]["counters"]["total_views"] == 27
-        assert resumes[0]["counters"]["new_views"] == 3
-        assert resumes[0]["counters"]["views_7d"] == 0
+        assert metrics == {
+            "res1": {
+                "views_7d": 12,
+                "new_views_7d": 3,
+                "invitations": 4,
+                "new_invitations": 1,
+                "search_shows": 50,
+            }
+        }
 
 class TestConfig:
     def test_get_config_masks_top_level_secrets(self, api):
