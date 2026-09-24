@@ -618,7 +618,7 @@ class Api:
                             detail,
                         )
                         errors.append(
-                            f"{negotiation_id}: {detail}"
+                            f"{negotiation_id}: {ex.__class__.__name__}"
                         )
 
             result: dict[str, Any] = {
@@ -642,7 +642,10 @@ class Api:
             logger.exception("refresh_negotiations fetch failed: %s", detail)
             return {
                 "status": "error",
-                "message": f"Ошибка синхронизации откликов: {detail}",
+                "message": (
+                    "Ошибка синхронизации откликов "
+                    f"({ex.__class__.__name__})"
+                ),
                 "count": count,
                 "skipped": skipped,
             }
