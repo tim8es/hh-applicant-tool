@@ -38,6 +38,11 @@ def mock_tool():
             "base_url": "https://api.openai.com",
             "model": "gpt-4",
         },
+        "openai_captcha": {
+            "api_key": "sk-captcha-test",
+            "base_url": "https://api.openai.com/v1/chat/completions",
+            "model": "gpt-4o-mini",
+        },
         "smtp": {
             "host": "smtp.example.com",
             "port": 587,
@@ -221,6 +226,8 @@ class TestConfig:
         """Вложенные api_key, password маскируются рекурсивно."""
         config = api.get_config()
         assert config["openai_cover_letter"]["api_key"] == "***"
+        assert config["openai_captcha"]["api_key"] == "***"
+        assert config["openai_captcha"]["model"] == "gpt-4o-mini"
         # Несекретные поля внутри вложенного dict остаются видны
         assert config["openai_cover_letter"]["base_url"] == "https://api.openai.com"
         assert config["openai_cover_letter"]["model"] == "gpt-4"
@@ -269,6 +276,20 @@ class TestConfig:
         })
         assert mock_tool.config["openai_cover_letter"]["api_key"] == "sk-test-00000000000000000000"
         assert mock_tool.config["openai_cover_letter"]["model"] == "gpt-4.1"
+
+    def test_save_config_updates_captcha_model_without_erasing_key(
+        self,
+        api,
+        mock_tool,
+    ):
+        api.save_config({
+            "openai_captcha": {
+                "model": "vision-model-v2",
+            }
+        })
+
+        assert mock_tool.config["openai_captcha"]["api_key"] == "sk-captcha-test"
+        assert mock_tool.config["openai_captcha"]["model"] == "vision-model-v2"
 
     def test_save_config_preserves_value_types(self, api, mock_tool):
         api.save_config({
