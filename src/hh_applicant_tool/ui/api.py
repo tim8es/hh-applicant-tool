@@ -85,6 +85,8 @@ class Api:
         self._is_running: bool = False
         self._auth_running: bool = False
         self._auth_thread: threading.Thread | None = None
+        self._network_lock = threading.RLock()
+        self._db_lock = threading.RLock()
 
     def set_window(self, window) -> None:
         self._window = window
@@ -208,7 +210,8 @@ class Api:
         if not client.access_token and not client.refresh_token:
             return {"authorized": False, "user": None, "reason": "no_token"}
         try:
-            user = self._tool.get_me()
+            with self._network_lock:
+                user = self._tool.get_me()
             if user.get("auth_type") != "applicant":
                 logger.warning(
                     "get_status: expected applicant token, got auth_type=%r",
@@ -297,17 +300,19 @@ class Api:
         if not client.access_token and not client.refresh_token:
             return []
         try:
-            resumes = [dict(item) for item in self._tool.get_resumes()]
+            with self._network_lock:
+                resumes = [dict(item) for item in self._tool.get_resumes()]
 
             try:
-                rows = self._tool.storage.negotiations.conn.execute(
+                with self._db_lock:
+                    rows = self._tool.storage.negotiations.conn.execute(
                     """
                     SELECT resume_id, count(*)
                     FROM negotiations
                     WHERE resume_id IS NOT NULL
                     GROUP BY resume_id
                     """
-                ).fetchall()
+                    ).fetchall()
                 negotiation_counts = {
                     str(resume_id): int(count)
                     for resume_id, count in rows
@@ -346,14 +351,30 @@ class Api:
                 logger.error("get_resumes error: %s", e)
             return []
 
-    def get_resume_metrics(self) -> dict[str, dict[str, int]]:
+    def get_resume_metrics(self) -> dict[str, Any]:
         """Load slower seven-day resume statistics from the HH web session."""
-        try:
-            statistics = self._tool.get_resume_statistics()
-        except Exception as e:
-            logger.warning("get_resume_metrics error: %s", e)
-            return {}
+        if self._is_running:
+            return {
+                "status": "busy",
+                "message": (
+                    "Статистика за 7 дней временно не обновляется "
+                    "во время поиска и откликов."
+                ),
+                "metrics": {},
+            }
 
+        try:
+            with self._network_lock:
+                stats_result = self._tool.get_resume_statistics_result()
+        except Exception as e:
+            logger.exception("get_resume_metrics error")
+            return {
+                "status": "error",
+                "message": f"Ошибка загрузки статистики: {e}",
+                "metrics": {},
+            }
+
+        statistics = stats_result.get("metrics") or {}
         result: dict[str, dict[str, int]] = {}
         for resume_id, values in statistics.items():
             metrics: dict[str, int] = {}
@@ -370,7 +391,12 @@ class Api:
                     metrics[key] = int(values[key])
             if metrics:
                 result[str(resume_id)] = metrics
-        return result
+
+        return {
+            "status": stats_result.get("status", "unavailable"),
+            "message": stats_result.get("message", ""),
+            "metrics": result,
+        }
 
     def get_config(self) -> dict[str, Any]:
         return _mask_secrets(dict(self._tool.config))
@@ -425,9 +451,10 @@ class Api:
     def get_negotiations_from_db(self) -> list[dict]:
         try:
             conn = self._tool.storage.negotiations.conn
-            cur = conn.execute(
-                """
-                SELECT n.id, n.state, n.vacancy_id, n.employer_id,
+            with self._db_lock:
+                cur = conn.execute(
+                    """
+                    SELECT n.id, n.state, n.vacancy_id, n.employer_id,
                        n.resume_id, n.created_at,
                        v.name AS vacancy_name,
                        COALESCE(
@@ -439,13 +466,14 @@ class Api:
                 LEFT JOIN vacancies v ON v.id = n.vacancy_id
                 LEFT JOIN employers e ON e.id = n.employer_id
                 ORDER BY n.created_at DESC
-                LIMIT 500
-                """
-            )
-            cols = [d[0] for d in cur.description]
+                    LIMIT 500
+                    """
+                )
+                cols = [d[0] for d in cur.description]
+                rows = cur.fetchall()
             return [
                 dict(zip(cols, row, strict=True))
-                for row in cur.fetchall()
+                for row in rows
             ]
         except Exception as e:
             logger.error("get_negotiations_from_db error: %s", e)
@@ -555,75 +583,118 @@ class Api:
         self._tool.storage.vacancies.save(vacancy)
 
     def refresh_negotiations(self, status: str | None = None) -> dict:
-        try:
-            count = 0
-            enriched = 0
-            for raw_item in self._tool.get_negotiations(status or None):
-                item = self._enrich_negotiation(raw_item)
-                if item != raw_item:
-                    enriched += 1
-                self._save_negotiation_context(item)
-                self._tool.storage.negotiations.save(item)
-                count += 1
-
-            if enriched:
-                logger.info(
-                    "Negotiations enriched with details: %d",
-                    enriched,
-                )
-            return {"status": "ok", "count": count}
-        except Exception as e:
-            logger.error("refresh_negotiations error: %s", e)
+        if self._is_running:
             return {
                 "status": "error",
-                "message": "Ошибка синхронизации откликов",
+                "message": (
+                    "Нельзя синхронизировать отклики во время "
+                    "поиска и отправки откликов."
+                ),
+            }
+
+        count = 0
+        skipped = 0
+        errors: list[str] = []
+
+        try:
+            with self._network_lock:
+                for raw_item in self._tool.get_negotiations(status or None):
+                    negotiation_id = str(raw_item.get("id") or "?")
+                    try:
+                        item = self._enrich_negotiation(raw_item)
+                        with self._db_lock:
+                            self._save_negotiation_context(item)
+                            self._tool.storage.negotiations.save(item)
+                        count += 1
+                    except Exception as ex:
+                        skipped += 1
+                        detail = (
+                            f"{ex.__class__.__name__}: "
+                            f"{str(ex) or 'без текста ошибки'}"
+                        )
+                        logger.exception(
+                            "refresh_negotiations item %s failed: %s",
+                            negotiation_id,
+                            detail,
+                        )
+                        errors.append(
+                            f"{negotiation_id}: {detail}"
+                        )
+
+            result: dict[str, Any] = {
+                "status": "ok",
+                "count": count,
+                "skipped": skipped,
+            }
+            if errors:
+                result["warning"] = (
+                    f"Не удалось обработать {skipped} отклик(а/ов). "
+                    "Остальные данные синхронизированы."
+                )
+                result["errors"] = errors[:5]
+            return result
+        except Exception as ex:
+            detail = (
+                f"{ex.__class__.__name__}: "
+                f"{str(ex) or 'без текста ошибки'}"
+            )
+            logger.exception("refresh_negotiations fetch failed: %s", detail)
+            return {
+                "status": "error",
+                "message": f"Ошибка синхронизации откликов: {detail}",
+                "count": count,
+                "skipped": skipped,
             }
 
     def get_statistics(self) -> dict:
         try:
-            conn = self._tool.storage.negotiations.conn
-            stats: dict[str, Any] = {}
-
-            cur = conn.execute(
-                "SELECT state, count(*) FROM negotiations GROUP BY state"
-            )
-            stats["by_state"] = dict(cur.fetchall())
-
-            cur = conn.execute(
-                "SELECT reason, count(*) FROM skipped_vacancies"
-                " GROUP BY reason"
-            )
-            stats["skipped_by_reason"] = dict(cur.fetchall())
-
-            cur = conn.execute(
-                "SELECT substr(created_at, 1, 10) AS day, count(*)"
-                " FROM negotiations"
-                " WHERE created_at IS NOT NULL"
-                " AND substr(created_at, 1, 10) >= date('now', '-30 days')"
-                " GROUP BY day ORDER BY day"
-            )
-            stats["daily_negotiations"] = dict(cur.fetchall())
-
-            cur = conn.execute(
-                "SELECT substr(created_at, 1, 10) AS day, count(*)"
-                " FROM skipped_vacancies"
-                " WHERE created_at IS NOT NULL"
-                " AND substr(created_at, 1, 10) >= date('now', '-30 days')"
-                " GROUP BY day ORDER BY day"
-            )
-            stats["daily_skipped"] = dict(cur.fetchall())
-
-            stats["total_negotiations"] = sum(
-                stats["by_state"].values()
-            )
-            stats["total_skipped"] = sum(
-                stats["skipped_by_reason"].values()
-            )
-
-            return stats
+            with self._db_lock:
+                return self._get_statistics_locked()
         except Exception as e:
             logger.error("get_statistics error: %s", e)
             return {}
+
+    def _get_statistics_locked(self) -> dict:
+        conn = self._tool.storage.negotiations.conn
+        stats: dict[str, Any] = {}
+
+        cur = conn.execute(
+            "SELECT state, count(*) FROM negotiations GROUP BY state"
+        )
+        stats["by_state"] = dict(cur.fetchall())
+
+        cur = conn.execute(
+            "SELECT reason, count(*) FROM skipped_vacancies"
+            " GROUP BY reason"
+        )
+        stats["skipped_by_reason"] = dict(cur.fetchall())
+
+        cur = conn.execute(
+            "SELECT substr(created_at, 1, 10) AS day, count(*)"
+            " FROM negotiations"
+            " WHERE created_at IS NOT NULL"
+            " AND substr(created_at, 1, 10) >= date('now', '-30 days')"
+            " GROUP BY day ORDER BY day"
+        )
+        stats["daily_negotiations"] = dict(cur.fetchall())
+
+        cur = conn.execute(
+            "SELECT substr(created_at, 1, 10) AS day, count(*)"
+            " FROM skipped_vacancies"
+            " WHERE created_at IS NOT NULL"
+            " AND substr(created_at, 1, 10) >= date('now', '-30 days')"
+            " GROUP BY day ORDER BY day"
+        )
+        stats["daily_skipped"] = dict(cur.fetchall())
+
+        stats["total_negotiations"] = sum(
+            stats["by_state"].values()
+        )
+        stats["total_skipped"] = sum(
+            stats["skipped_by_reason"].values()
+        )
+
+        return stats
 
     def apply_vacancies(self, params: dict[str, Any]) -> dict[str, Any]:
         if self._is_running:
