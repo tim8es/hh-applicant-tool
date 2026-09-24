@@ -75,13 +75,14 @@ function _clearProfileScopedClientState() {
 
 async function _refreshAfterProfileChange() {
     _clearProfileScopedClientState();
+    const activeSection = document.querySelector('.section.active')?.id;
+
     await loadProfiles();
     await loadDashboard();
-    await loadResumes();
+    await loadResumes(activeSection === 'resumes');
     await loadPresetsList();
     await loadLastUsed();
 
-    const activeSection = document.querySelector('.section.active')?.id;
     if (activeSection === 'settings') await loadConfig();
     if (activeSection === 'negotiations') await loadNegotiations();
     if (activeSection === 'statistics') await loadStatistics();
@@ -283,7 +284,7 @@ async function logout() {
     }
     await loadProfiles();
     await loadDashboard();
-    await loadResumes();
+    await loadResumes(false);
 }
 
 function onAuthEvent(event, message) {
@@ -299,7 +300,7 @@ function onAuthEvent(event, message) {
         showToast(message || 'Авторизация прошла успешно', 'success');
         loadProfiles();
         loadDashboard();
-        loadResumes();
+        loadResumes(document.querySelector('.section.active')?.id === 'resumes');
     } else if (event === 'error') {
         _authInProgress = false;
         showToast(message || 'Ошибка авторизации', 'error');
@@ -315,7 +316,40 @@ function onAuthEvent(event, message) {
 
 // ========== Резюме ==========
 
-async function loadResumes() {
+let _resumeMetricsGeneration = 0;
+
+async function loadResumeMetrics(resumes, generation) {
+    try {
+        const metrics = await pywebview.api.get_resume_metrics();
+        if (generation !== _resumeMetricsGeneration) return;
+
+        resumes.forEach(r => {
+            const values = metrics[String(r.id)] || {};
+            const card = document.querySelector(`.resume-card[data-resume-id="${CSS.escape(String(r.id))}"]`);
+            if (!card) return;
+
+            const viewsEl = card.querySelector('[data-resume-metric="views_7d"]');
+            const showsEl = card.querySelector('[data-resume-metric="search_shows"]');
+            const invitesEl = card.querySelector('[data-resume-metric="invitations"]');
+
+            if (viewsEl) {
+                viewsEl.textContent = `${values.views_7d ?? '—'} просмотров за 7 дней`;
+            }
+            if (showsEl) {
+                showsEl.textContent = `${values.search_shows ?? '—'} показов за 7 дней`;
+            }
+            if (invitesEl) {
+                const newInvites = values.new_invitations || 0;
+                invitesEl.textContent = `${values.invitations ?? '—'} приглашений за 7 дней${newInvites > 0 ? ` (+${newInvites} новых)` : ''}`;
+            }
+        });
+    } catch (e) {
+        console.warn('loadResumeMetrics error:', e);
+    }
+}
+
+async function loadResumes(loadMetrics = true) {
+    const generation = ++_resumeMetricsGeneration;
     const grid = document.getElementById('resumes-grid');
     grid.innerHTML = '<div class="card text-center text-gray-400 text-sm col-span-2"><div class="spinner mx-auto mb-2"></div>Загрузка резюме...</div>';
 
@@ -337,17 +371,17 @@ async function loadResumes() {
             const newInvites = (counters.new_invitations ?? null);
             const negotiations = (r.negotiations_count || 0);
             const url = safeUrl(r.alternate_url || r.url || '');
-            return `<div class="resume-card">
+            return `<div class="resume-card" data-resume-id="${escapeHtml(String(r.id))}">
                 <div class="flex items-start justify-between gap-2">
                     <div class="resume-card-title">${escapeHtml(r.title || 'Без названия')}</div>
                     <span class="resume-badge ${escapeHtml(status)}">${escapeHtml(statusName)}</span>
                 </div>
                 <div class="resume-card-meta">
                     <span class="resume-counter">&#128065; ${totalViews == null ? '—' : totalViews} просмотров всего${newViews > 0 ? ` <span style="color:#2563eb">(+${newViews} новых)</span>` : ''}</span>
-                    <span class="resume-counter">&#128065; ${views7d == null ? '—' : views7d} просмотров за 7 дней</span>
-                    <span class="resume-counter">&#128269; ${shows == null ? '—' : shows} показов за 7 дней</span>
+                    <span class="resume-counter" data-resume-metric="views_7d">&#128065; ${views7d == null ? '—' : views7d} просмотров за 7 дней</span>
+                    <span class="resume-counter" data-resume-metric="search_shows">&#128269; ${shows == null ? '—' : shows} показов за 7 дней</span>
                     <span class="resume-counter">&#128233; ${negotiations} откликов/приглашений синхронизировано</span>
-                    <span class="resume-counter">&#128231; ${invites == null ? '—' : invites} приглашений за 7 дней${newInvites > 0 ? ` <span style="color:#2563eb">(+${newInvites} новых)</span>` : ''}</span>
+                    <span class="resume-counter" data-resume-metric="invitations">&#128231; ${invites == null ? '—' : invites} приглашений за 7 дней${newInvites > 0 ? ` <span style="color:#2563eb">(+${newInvites} новых)</span>` : ''}</span>
                 </div>
                 <div class="flex items-center justify-between mt-1">
                     <span class="text-xs text-gray-400">ID: ${escapeHtml(r.id)}</span>
@@ -375,6 +409,10 @@ async function loadResumes() {
                     sel.value = selectedResumeId;
                 }
             }
+        }
+
+        if (loadMetrics) {
+            void loadResumeMetrics(resumes, generation);
         }
     } catch (e) {
         grid.innerHTML = '<div class="card text-center text-red-400 text-sm col-span-2">Ошибка загрузки резюме</div>';
@@ -1043,7 +1081,7 @@ window.addEventListener('pywebviewready', () => {
     initLookup('industry-lookup', 'industry-tags', 'industry', 'get_industries');
     loadProfiles();
     loadDashboard();
-    loadResumes();
+    loadResumes(false);
     loadPresetsList();
     loadLastUsed();
 });
