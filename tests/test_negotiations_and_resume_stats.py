@@ -230,3 +230,59 @@ def test_resume_statistics_returns_empty_after_login_redirect():
     )
 
     assert tool.get_resume_statistics() == {}
+
+
+def test_resume_statistics_result_reports_ok():
+    tool = HHApplicantTool()
+    payload = {
+        "applicantResumesStatistics": {
+            "resumes": {
+                "res1": {
+                    "statistics": {
+                        "searchShows": {"count": 11},
+                        "views": {"count": 5},
+                    }
+                }
+            }
+        }
+    }
+    import html
+    import json
+
+    response = SimpleNamespace(
+        status_code=200,
+        url="https://hh.ru/applicant/resumes",
+        content=b"ok",
+        text=(
+            '<template id="HH-Lux-InitialState">'
+            + html.escape(json.dumps(payload))
+            + "</template>"
+        ),
+    )
+    tool.__dict__["session"] = SimpleNamespace(
+        get=lambda url, **kwargs: response
+    )
+
+    result = tool.get_resume_statistics_result()
+
+    assert result["status"] == "ok"
+    assert result["metrics"]["res1"]["views"] == 5
+    assert result["metrics"]["res1"]["search_shows"] == 11
+
+
+def test_resume_statistics_result_reports_auth_required_on_login_redirect():
+    tool = HHApplicantTool()
+    response = SimpleNamespace(
+        status_code=200,
+        url="https://hh.ru/account/login",
+        content=b"",
+        text="<html></html>",
+    )
+    tool.__dict__["session"] = SimpleNamespace(
+        get=lambda url, **kwargs: response
+    )
+
+    result = tool.get_resume_statistics_result()
+
+    assert result["status"] == "auth_required"
+    assert result["metrics"] == {}
