@@ -415,7 +415,7 @@ class HHApplicantTool(MegaTool):
                     "Accept": "text/html,application/xhtml+xml",
                     "Referer": "https://hh.ru/",
                 },
-                timeout=15,
+                timeout=5,
                 allow_redirects=True,
             )
             if "/account/login" in response.url or "/oauth/authorize" in response.url:
