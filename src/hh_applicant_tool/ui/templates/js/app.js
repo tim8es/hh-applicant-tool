@@ -320,8 +320,16 @@ let _resumeMetricsGeneration = 0;
 
 async function loadResumeMetrics(resumes, generation) {
     try {
-        const metrics = await pywebview.api.get_resume_metrics();
+        const result = await pywebview.api.get_resume_metrics();
         if (generation !== _resumeMetricsGeneration) return;
+
+        const metrics = result?.metrics || {};
+        if (result?.status && result.status !== 'ok') {
+            console.warn('Resume metrics unavailable:', result.status, result.message || '');
+            if (result.status !== 'busy' && result.message) {
+                showToast(result.message, result.status === 'auth_required' ? 'info' : 'error');
+            }
+        }
 
         resumes.forEach(r => {
             const values = metrics[String(r.id)] || {};
@@ -333,14 +341,14 @@ async function loadResumeMetrics(resumes, generation) {
             const invitesEl = card.querySelector('[data-resume-metric="invitations"]');
 
             if (viewsEl) {
-                viewsEl.textContent = `Просмотры за 7 дней: ${values.views_7d ?? '—'}`;
+                viewsEl.textContent = `Просмотры за 7 дней: ${values.views_7d ?? (result?.status === 'ok' ? '—' : 'недоступно')}`;
             }
             if (showsEl) {
-                showsEl.textContent = `Показы за 7 дней: ${values.search_shows ?? '—'}`;
+                showsEl.textContent = `Показы за 7 дней: ${values.search_shows ?? (result?.status === 'ok' ? '—' : 'недоступно')}`;
             }
             if (invitesEl) {
                 const newInvites = values.new_invitations || 0;
-                invitesEl.textContent = `Приглашения за 7 дней: ${values.invitations ?? '—'}${newInvites > 0 ? ` (+${newInvites} новых)` : ''}`;
+                invitesEl.textContent = `Приглашения за 7 дней: ${values.invitations ?? (result?.status === 'ok' ? '—' : 'недоступно')}${newInvites > 0 ? ` (+${newInvites} новых)` : ''}`;
             }
         });
     } catch (e) {
@@ -830,7 +838,14 @@ async function refreshNegotiations() {
     try {
         const result = await pywebview.api.refresh_negotiations();
         if (result.status === 'ok') {
-            showToast(`Загружено ${result.count} откликов`, 'success');
+            const suffix = result.skipped ? `, пропущено с ошибкой: ${result.skipped}` : '';
+            showToast(
+                result.warning || `Загружено ${result.count} откликов${suffix}`,
+                result.skipped ? 'info' : 'success'
+            );
+            if (result.errors?.length) {
+                console.warn('Negotiation sync item errors:', result.errors);
+            }
         } else {
             showToast('Ошибка: ' + (result.message || 'неизвестная'), 'error');
         }
