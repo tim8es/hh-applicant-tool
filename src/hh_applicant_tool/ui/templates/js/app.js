@@ -333,14 +333,14 @@ async function loadResumeMetrics(resumes, generation) {
             const invitesEl = card.querySelector('[data-resume-metric="invitations"]');
 
             if (viewsEl) {
-                viewsEl.textContent = `${values.views_7d ?? '—'} просмотров за 7 дней`;
+                viewsEl.textContent = `Просмотры за 7 дней: ${values.views_7d ?? '—'}`;
             }
             if (showsEl) {
-                showsEl.textContent = `${values.search_shows ?? '—'} показов за 7 дней`;
+                showsEl.textContent = `Показы за 7 дней: ${values.search_shows ?? '—'}`;
             }
             if (invitesEl) {
                 const newInvites = values.new_invitations || 0;
-                invitesEl.textContent = `${values.invitations ?? '—'} приглашений за 7 дней${newInvites > 0 ? ` (+${newInvites} новых)` : ''}`;
+                invitesEl.textContent = `Приглашения за 7 дней: ${values.invitations ?? '—'}${newInvites > 0 ? ` (+${newInvites} новых)` : ''}`;
             }
         });
     } catch (e) {
@@ -377,11 +377,11 @@ async function loadResumes(loadMetrics = true) {
                     <span class="resume-badge ${escapeHtml(status)}">${escapeHtml(statusName)}</span>
                 </div>
                 <div class="resume-card-meta">
-                    <span class="resume-counter">&#128065; ${totalViews == null ? '—' : totalViews} просмотров всего${newViews > 0 ? ` <span style="color:#2563eb">(+${newViews} новых)</span>` : ''}</span>
-                    <span class="resume-counter" data-resume-metric="views_7d">&#128065; ${views7d == null ? '—' : views7d} просмотров за 7 дней</span>
-                    <span class="resume-counter" data-resume-metric="search_shows">&#128269; ${shows == null ? '—' : shows} показов за 7 дней</span>
-                    <span class="resume-counter">&#128233; ${negotiations} откликов/приглашений синхронизировано</span>
-                    <span class="resume-counter" data-resume-metric="invitations">&#128231; ${invites == null ? '—' : invites} приглашений за 7 дней${newInvites > 0 ? ` <span style="color:#2563eb">(+${newInvites} новых)</span>` : ''}</span>
+                    <span class="resume-counter">&#128065; Просмотры всего: ${totalViews == null ? '—' : totalViews}${newViews > 0 ? ` <span style="color:#2563eb">(+${newViews} новых)</span>` : ''}</span>
+                    <span class="resume-counter" data-resume-metric="views_7d">&#128065; Просмотры за 7 дней: ${views7d == null ? '—' : views7d}</span>
+                    <span class="resume-counter" data-resume-metric="search_shows">&#128269; Показы за 7 дней: ${shows == null ? '—' : shows}</span>
+                    <span class="resume-counter">&#128233; История откликов: ${negotiations}</span>
+                    <span class="resume-counter" data-resume-metric="invitations">&#128231; Приглашения за 7 дней: ${invites == null ? '—' : invites}${newInvites > 0 ? ` <span style="color:#2563eb">(+${newInvites} новых)</span>` : ''}</span>
                 </div>
                 <div class="flex items-center justify-between mt-1">
                     <span class="text-xs text-gray-400">ID: ${escapeHtml(r.id)}</span>
