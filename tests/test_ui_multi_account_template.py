@@ -29,3 +29,13 @@ def test_captcha_ai_settings_are_exposed_in_ui():
     assert 'data-config-key="openai_captcha.model"' in html
     assert 'data-config-secret="true"' in html
     assert "vision-модель" in html
+
+
+
+def test_resume_metrics_are_lazy_loaded_after_startup():
+    js = (TEMPLATES_DIR / "js" / "app.js").read_text(encoding="utf-8")
+
+    assert "loadResumes(false);" in js
+    assert "pywebview.api.get_resume_metrics()" in js
+    assert "async function loadResumes(loadMetrics = true)" in js
+    assert "void loadResumeMetrics(resumes, generation);" in js
