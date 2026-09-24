@@ -17,3 +17,15 @@ def test_multi_account_controls_are_wired_to_js_api():
     assert "pywebview.api.switch_profile(profileId)" in js
     assert "pywebview.api.create_profile(profileId)" in js
     assert "pywebview.api.delete_profile(profileId)" in js
+
+
+
+def test_captcha_ai_settings_are_exposed_in_ui():
+    html = (TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert "AI для решения CAPTCHA" in html
+    assert 'data-config-key="openai_captcha.api_key"' in html
+    assert 'data-config-key="openai_captcha.base_url"' in html
+    assert 'data-config-key="openai_captcha.model"' in html
+    assert 'data-config-secret="true"' in html
+    assert "vision-модель" in html
