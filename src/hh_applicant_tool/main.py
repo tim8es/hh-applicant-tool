@@ -408,15 +408,6 @@ class HHApplicantTool(MegaTool):
 
     def get_resume_statistics_result(self) -> dict[str, Any]:
         """Load seven-day resume statistics from the authenticated HH web page."""
-        if not self._cookie_value("hhtoken"):
-            return {
-                "status": "auth_required",
-                "message": (
-                    "Нет web-сессии hh.ru. Переавторизуйтесь в текущем профиле."
-                ),
-                "metrics": {},
-            }
-
         try:
             response = self.session.get(
                 "https://hh.ru/applicant/resumes",
