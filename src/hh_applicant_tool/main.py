@@ -406,28 +406,89 @@ class HHApplicantTool(MegaTool):
     def get_redirect_config(self, url: str, check_auth: bool = True) -> dict[str, Any]:
         return self.parse_redirect_config(self.session.get(url), check_auth)
 
-    def get_resume_statistics(self) -> dict[str, dict[str, int]]:
-        """Return per-resume statistics shown on the applicant resumes page."""
+    def get_resume_statistics_result(self) -> dict[str, Any]:
+        """Load seven-day resume statistics from the authenticated HH web page."""
+        if not self._cookie_value("hhtoken"):
+            return {
+                "status": "auth_required",
+                "message": (
+                    "Нет web-сессии hh.ru. Переавторизуйтесь в текущем профиле."
+                ),
+                "metrics": {},
+            }
+
         try:
             response = self.session.get(
                 "https://hh.ru/applicant/resumes",
                 headers={
-                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept": (
+                        "text/html,application/xhtml+xml,"
+                        "application/xml;q=0.9,*/*;q=0.8"
+                    ),
                     "Referer": "https://hh.ru/",
+                    "Cache-Control": "no-cache",
                 },
                 timeout=5,
                 allow_redirects=True,
             )
-            if "/account/login" in response.url or "/oauth/authorize" in response.url:
-                logger.warning(
-                    "Unable to load resume statistics: web session is not authenticated"
-                )
-                return {}
+        except requests.RequestException as ex:
+            logger.warning("Unable to load resume statistics: %s", ex)
+            return {
+                "status": "network_error",
+                "message": "Не удалось получить статистику резюме с hh.ru.",
+                "metrics": {},
+            }
 
+        if (
+            response.status_code != 200
+            or "/account/login" in response.url
+            or "/oauth/authorize" in response.url
+        ):
+            logger.warning(
+                "Resume statistics web auth failed: status=%s url=%s",
+                response.status_code,
+                response.url,
+            )
+            return {
+                "status": "auth_required",
+                "message": (
+                    "Web-сессия hh.ru недействительна. "
+                    "Переавторизуйтесь в текущем профиле."
+                ),
+                "metrics": {},
+            }
+
+        try:
             config = self.parse_initial_state(response)
         except Exception as ex:
-            logger.warning("Unable to load resume statistics: %s", ex)
-            return {}
+            logger.warning(
+                "Unable to parse resume statistics page: %s; "
+                "url=%s bytes=%d",
+                ex,
+                response.url,
+                len(response.content),
+            )
+            return {
+                "status": "parse_error",
+                "message": (
+                    "HH изменил структуру страницы статистики. "
+                    "Данные за 7 дней не удалось разобрать."
+                ),
+                "metrics": {},
+            }
+
+        if not self._is_authenticated(config):
+            logger.warning(
+                "Resume statistics page has no authenticated account state"
+            )
+            return {
+                "status": "auth_required",
+                "message": (
+                    "Web-сессия hh.ru не авторизована. "
+                    "Переавторизуйтесь в текущем профиле."
+                ),
+                "metrics": {},
+            }
 
         stats_root = config.get("applicantResumesStatistics")
         if not isinstance(stats_root, dict):
@@ -448,12 +509,18 @@ class HHApplicantTool(MegaTool):
             if isinstance(stats_root, dict)
             else {}
         )
-        if not isinstance(resumes_stats, dict):
+        if not isinstance(resumes_stats, dict) or not resumes_stats:
             logger.warning(
                 "Resume statistics missing in HH initial state; top-level keys: %s",
                 sorted(config.keys())[:40],
             )
-            return {}
+            return {
+                "status": "unavailable",
+                "message": (
+                    "HH не вернул статистику просмотров и показов за 7 дней."
+                ),
+                "metrics": {},
+            }
 
         result: dict[str, dict[str, int]] = {}
         for resume_id, payload in resumes_stats.items():
@@ -527,14 +594,32 @@ class HHApplicantTool(MegaTool):
                     ),
                     None,
                 )
-                if metrics is None and len(result) == 1 and len(applicant_resumes) == 1:
+                if (
+                    metrics is None
+                    and len(result) == 1
+                    and len(applicant_resumes) == 1
+                ):
                     metrics = next(iter(result.values()))
 
                 if metrics is not None:
                     for alias in aliases:
                         result.setdefault(alias, metrics)
 
-        return result
+        if not result:
+            return {
+                "status": "unavailable",
+                "message": "HH вернул пустую статистику резюме за 7 дней.",
+                "metrics": {},
+            }
+
+        return {
+            "status": "ok",
+            "message": "",
+            "metrics": result,
+        }
+
+    def get_resume_statistics(self) -> dict[str, dict[str, int]]:
+        return self.get_resume_statistics_result()["metrics"]
 
     # TODO: добавить еще методов или те удалить?
 
